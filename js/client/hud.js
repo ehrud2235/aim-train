@@ -64,25 +64,35 @@ export function createHud(map) {
   let toastT = 0;
   let hurtT = 0;
 
+  // 크로스헤어 캔버스는 화면 전체 크기 — 점프·달리기로 크게 벌어져도 잘리지 않게. 지울 때는 지난번 그린 범위만
+  let lastExtent = Infinity;
   function drawCrosshair(cfg, fireErr, moveErr, pxPerDeg, spreadDeg, showSpread) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const S = 220;
-    if (ch.width !== S * dpr) {
-      ch.width = S * dpr;
-      ch.height = S * dpr;
-      ch.style.width = `${S}px`;
-      ch.style.height = `${S}px`;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    if (ch.width !== Math.round(W * dpr) || ch.height !== Math.round(H * dpr)) {
+      ch.width = Math.round(W * dpr);
+      ch.height = Math.round(H * dpr);
+      ch.style.width = `${W}px`;
+      ch.style.height = `${H}px`;
+      lastExtent = Infinity;
     }
     chg.setTransform(dpr, 0, 0, dpr, 0, 0);
-    chg.clearRect(0, 0, S, S);
-    paintCrosshair(chg, S / 2, S / 2, cfg, fireErr * pxPerDeg, moveErr * pxPerDeg);
+    const cx = Math.floor(W / 2);
+    const cy = Math.floor(H / 2);
+    if (lastExtent === Infinity) chg.clearRect(0, 0, W, H);
+    else chg.clearRect(cx - lastExtent, cy - lastExtent, lastExtent * 2, lastExtent * 2);
+    let extent = paintCrosshair(chg, cx, cy, cfg, fireErr * pxPerDeg, moveErr * pxPerDeg);
     if (showSpread && spreadDeg > 0) {
+      const r = Math.max(1, spreadDeg * pxPerDeg);
       chg.strokeStyle = 'rgba(255,80,80,0.6)';
       chg.lineWidth = 1;
       chg.beginPath();
-      chg.arc(S / 2, S / 2, Math.max(1, spreadDeg * pxPerDeg), 0, Math.PI * 2);
+      chg.arc(cx, cy, r, 0, Math.PI * 2);
       chg.stroke();
+      extent = Math.max(extent, r + 1);
     }
+    lastExtent = Math.ceil(extent) + 4;
   }
 
   function drawMinimap(state) {

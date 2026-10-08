@@ -119,9 +119,10 @@ export function stepWeapon(w, input, move, dt, rng = Math.random) {
   const da = dt / VANDAL.adsTime;
   w.ads = wantAds ? Math.min(1, w.ads + da) : Math.max(0, w.ads - da);
 
-  // 반동 회복
+  // 반동 회복: 연사 간격(조준 시 더 김)이 지나기 전에는 회복하지 않음 → 누르고 있으면 패턴이 끝까지 이어짐
   w.sinceShot += dt;
-  if (w.sinceShot > VANDAL.recoverDelay && w.shotIdx > 0) {
+  const interval = 1 / (VANDAL.fireRate * (isAds(w) ? VANDAL.adsFireRateMult : 1));
+  if (w.sinceShot > Math.max(VANDAL.recoverDelay, interval + dt) && w.shotIdx > 0) {
     w.shotIdx = Math.max(0, w.shotIdx - (VANDAL.recoverRate + w.shotIdx * VANDAL.recoverRateScale) * dt);
     if (w.shotIdx === 0) w.spraySide = rng() < 0.5 ? -1 : 1;
   }

@@ -142,6 +142,49 @@ function seek(bot, tx, ty) {
   return { wx: dx / d, wy: dy / d, arrived: false };
 }
 
+/** 지금 자리에서 숨는 곳까지 걸어갈 수 있는 피킹 길 중 하나 (없으면 지금 길 유지) */
+function pickLane(bot, map, rng) {
+  const m = bot.mover;
+  const ok = bot.peeks.filter((l) => {
+    const first = l.hide;
+    return Math.hypot(first[0] - m.x, first[1] - m.y) < 0.5 || segmentWalkable(map, m.x, m.y, first[0], first[1]);
+  });
+  const list = ok.length ? ok : bot.lane ? [bot.lane] : bot.peeks;
+  return list[Math.floor(rng() * list.length)];
+}
+
+/**
+ * 피킹 목표: 피킹 지점에서 (피킹 방향으로) back 비율만큼 덜 나오거나(지글), extra m 더 나감(와이드).
+ * 벽 속이나 뛰어내려야 하는 곳이면 돌아올 수 있는 곳까지 줄인다.
+ */
+function peekTarget(map, lane, back, extra) {
+  const from = lane.via || lane.hide;
+  const dx = lane.peek[0] - from[0];
+  const dy = lane.peek[1] - from[1];
+  const L = Math.hypot(dx, dy) || 1;
+  // 지글은 피킹 지점에서 최대 1.2m 만 덜 나옴 (먼 길에서도 짧게 내밀었다 들어가게)
+  let e = back !== 0 ? -Math.min(-back * L, 1.2) : extra;
+  for (let k = 0; k < 8; k++) {
+    const t = [lane.peek[0] + (dx / L) * e, lane.peek[1] + (dy / L) * e];
+    if (segmentWalkable(map, from[0], from[1], t[0], t[1]) && segmentWalkable(map, t[0], t[1], from[0], from[1])) return t;
+    e *= 0.5;
+  }
+  return [lane.peek[0], lane.peek[1]];
+}
+
+/** 경유 지점들을 따라감: 중간 지점은 멈추지 않고 지나가고, 마지막 지점에서 선다 */
+function followPath(bot) {
+  const m = bot.mover;
+  while (bot.path.length > 1 && Math.hypot(bot.path[0][0] - m.x, bot.path[0][1] - m.y) < 0.6) bot.path.shift();
+  const [tx, ty] = bot.path[0];
+  if (bot.path.length > 1) {
+    const d = Math.hypot(tx - m.x, ty - m.y) || 1;
+    return { wx: (tx - m.x) / d, wy: (ty - m.y) / d, done: false };
+  }
+  const s = seek(bot, tx, ty);
+  return { wx: s.wx, wy: s.wy, done: s.wx === 0 && s.wy === 0 };
+}
+
 /**
  * 봇 한 틱.
  * ctx: { map, dt, rng, player: {x,y,z,eye, alive}, now, fight: {enabled, reaction, accuracy, headRate} }
@@ -197,7 +240,7 @@ export function stepBot(bot, ctx) {
     }
     case 'peek': {
       bot.timer -= dt;
-      if (!bot.lane) bot.lane = bot.peeks[Math.floor(rng() * bot.peeks.length)];
+      if (!bot.lane) bot.lane = pickLane(bot, map, rng);
       const lane = bot.lane;
       if (bot.phase === 'hidden') {
         const s = seek(bot, lane.hide[0], lane.hide[1]);
@@ -205,23 +248,20 @@ export function stepBot(bot, ctx) {
         wy = s.wy;
         if (bot.timer <= 0 && s.arrived) {
           bot.phase = 'out';
-          // 넓게(와이드) 피킹하거나, 살짝(어깨) 피킹
-          const dx = lane.peek[0] - lane.hide[0];
-          const dy = lane.peek[1] - lane.hide[1];
-          const L = Math.hypot(dx, dy) || 1;
+          // 넓게(와이드) 피킹하거나, 살짝(어깨) 피킹하거나, 지글
           const style = rng();
-          const extra = style < 0.25 ? -L * 0.55 : style < 0.55 ? rand(rng, 0.5, 1.8) : 0;
           bot.jiggle = style < 0.25;
-          bot.target = [lane.peek[0] + (dx / L) * extra, lane.peek[1] + (dy / L) * extra];
+          bot.target = peekTarget(map, lane, style < 0.25 ? -0.55 : 0, style >= 0.25 && style < 0.55 ? rand(rng, 0.5, 1.8) : 0);
+          bot.path = lane.via ? [lane.via, bot.target] : [bot.target];
           bot.walk = rng() < 0.1;
           bot.crouchWanted = rng() < 0.12;
         }
       } else if (bot.phase === 'out') {
-        const s = seek(bot, bot.target[0], bot.target[1]);
+        const s = followPath(bot);
         wx = s.wx;
         wy = s.wy;
         speed = bot.walk ? walk : run;
-        if (s.wx === 0 && s.wy === 0) {
+        if (s.done) {
           bot.phase = 'hold';
           bot.timer = bot.jiggle ? rand(rng, 0.0, 0.12) : rand(rng, 0.35, 1.3);
         }
@@ -229,16 +269,26 @@ export function stepBot(bot, ctx) {
         crouch = bot.crouchWanted;
         if (bot.timer <= 0) {
           bot.phase = 'back';
+          bot.path = lane.via ? [lane.via, lane.hide] : [lane.hide];
         }
       } else if (bot.phase === 'back') {
-        const s = seek(bot, lane.hide[0], lane.hide[1]);
+        const s = followPath(bot);
         wx = s.wx;
         wy = s.wy;
-        if (s.arrived) {
+        if (s.done) {
           bot.phase = 'hidden';
           bot.timer = rand(rng, 0.5, 2.4);
-          bot.lane = bot.peeks[Math.floor(rng() * bot.peeks.length)];
+          bot.lane = pickLane(bot, map, rng);
         }
+      }
+      // 어딘가 걸려서 못 움직이면 숨는 자리로 되돌림 (안전장치). 멈춰서 쏘는 중이면 걸린 게 아님
+      const engaging = ctx.fight && ctx.fight.enabled && sees && bot.seeT >= ctx.fight.reaction;
+      bot.stuckT = !engaging && horizSpeed(m) < 0.3 && (wx !== 0 || wy !== 0) ? (bot.stuckT || 0) + dt : 0;
+      if (bot.stuckT > 1) {
+        respawnBot(bot, map, lane.hide[0], lane.hide[1]);
+        bot.lane = lane;
+        bot.timer = rand(rng, 0.5, 1.5);
+        return out;
       }
       break;
     }

@@ -11,22 +11,13 @@ function rgba(hex, a) {
 /**
  * g: 2D 컨텍스트, (cx, cy): 가운데, cfg: 크로스헤어 설정
  * fireErrPx / moveErrPx: 연사·이동 오차만큼 선이 벌어지는 픽셀
+ * 발로란트처럼 테두리를 전부 먼저 깔고 그 위에 색을 칠한다 (간격이 좁아도 선끼리 테두리가 덮지 않게).
+ * 반환: 가운데에서 그린 곳까지의 최대 거리(px) — 다음 프레임에 그만큼만 지우면 된다.
  */
 export function paintCrosshair(g, cx, cy, cfg, fireErrPx = 0, moveErrPx = 0) {
-  const ol = cfg.outline;
-  const olT = cfg.outlineThickness;
-  const olA = cfg.outlineOpacity;
+  const rects = [];
   const rect = (x, y, w, h, a) => {
-    const rx = Math.round(x);
-    const ry = Math.round(y);
-    const rw = Math.max(1, Math.round(w));
-    const rh = Math.max(1, Math.round(h));
-    if (ol && olA > 0) {
-      g.fillStyle = `rgba(0,0,0,${olA})`;
-      g.fillRect(rx - olT, ry - olT, rw + olT * 2, rh + olT * 2);
-    }
-    g.fillStyle = rgba(cfg.color, a);
-    g.fillRect(rx, ry, rw, rh);
+    rects.push([Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)), a]);
   };
   const lines = (L) => {
     if (!L.show || L.opacity <= 0 || L.length <= 0) return;
@@ -49,6 +40,18 @@ export function paintCrosshair(g, cx, cy, cfg, fireErrPx = 0, moveErrPx = 0) {
     const t = cfg.dotThickness;
     rect(cx - t / 2, cy - t / 2, t, t, cfg.dotOpacity);
   }
+  const olT = cfg.outline && cfg.outlineOpacity > 0 ? cfg.outlineThickness : 0;
+  if (olT > 0) {
+    g.fillStyle = `rgba(0,0,0,${cfg.outlineOpacity})`;
+    for (const [x, y, w, h] of rects) g.fillRect(x - olT, y - olT, w + olT * 2, h + olT * 2);
+  }
+  let extent = 0;
+  for (const [x, y, w, h, a] of rects) {
+    g.fillStyle = rgba(cfg.color, a);
+    g.fillRect(x, y, w, h);
+    extent = Math.max(extent, Math.abs(x - cx), Math.abs(x + w - cx), Math.abs(y - cy), Math.abs(y + h - cy));
+  }
+  return extent + olT + 1;
 }
 
 /** 설정 화면 미리보기 (회색 바탕) */

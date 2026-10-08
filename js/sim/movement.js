@@ -115,6 +115,7 @@ export function stepMover(m, map, input, dt) {
     } else {
       if (ground < m.z) m.stepSmooth -= m.z - ground;
       m.z = ground;
+      m.vz = 0;
     }
   }
   if (!m.onGround) {
@@ -192,7 +193,7 @@ function moveAxis(m, map, dx, dy) {
     m.stepSmooth -= g - m.z; // 계단: 몸은 바로 올리고 화면은 부드럽게
     m.z = g;
     if (!m.onGround) {
-      m.vz = Math.max(m.vz, 0);
+      m.vz = 0;
       m.onGround = true;
     }
   }

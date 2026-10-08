@@ -369,3 +369,135 @@ test('발로 크로스헤어 코드 읽기', () => {
 test('바닥 높이 확인용: 후카는 0.9m 높다', () => {
   assert.ok(near(groundHeight(map, 26, 34, 5), 0.9, 1e-6));
 });
+
+// ── 리뷰에서 찾은 문제들 (다시 생기지 않게) ──
+import { loadSettings, DEFAULT_CROSSHAIR } from '../js/sim/settings.js';
+
+test('첫 방문: 메뉴에서 크로스헤어를 바꿔도 기본값·코드 해석 기준이 안 바뀐다', () => {
+  const s = loadSettings(null);
+  assert.notEqual(s.crosshair, DEFAULT_CROSSHAIR);
+  assert.notEqual(s.crosshair.inner, DEFAULT_CROSSHAIR.inner);
+  s.crosshair.color = '#00ff00';
+  s.crosshair.inner.length = 14;
+  assert.equal(DEFAULT_CROSSHAIR.color, '#ffffff');
+  assert.equal(parseCrosshairCode('0;P;h;0;0o;2;0a;1;0f;0;1b;0').inner.length, 6);
+  assert.equal(loadSettings(null).crosshair.inner.length, 6);
+});
+
+test('조준(ADS) 상태로 누르고 쏘면 스프레이 패턴이 0~24번째 발까지 끊김 없이 이어진다', () => {
+  for (const ads of [false, true]) {
+    const w = createWeapon();
+    const still = { speed: 0, airborne: false, crouched: false };
+    if (ads) for (let i = 0; i < 64; i++) stepWeapon(w, { fire: false, adsHeld: true }, still, DT);
+    const idx = [];
+    for (let i = 0; i < 128 * 3.5 && idx.length < 25; i++) {
+      for (const s of stepWeapon(w, { fire: true, adsHeld: ads }, still, DT, seeded(3)).shots) idx.push(s.index);
+    }
+    assert.deepEqual(idx, Array.from({ length: 25 }, (_, i) => i), ads ? 'ADS' : '지향사격');
+  }
+});
+
+test('점프하다 계단 턱에 올라서도 위로 가던 속도가 남지 않는다 (나중에 저절로 뜨지 않음)', () => {
+  const rng = seeded(11);
+  for (let trial = 0; trial < 40; trial++) {
+    const m = createMover(28, 16 + rng() * 2, 0);
+    for (let i = 0; i < 128 * 3; i++) {
+      const jump = i === Math.floor(rng() * 200) || rng() < 0.01;
+      stepMover(m, map, { wx: (rng() - 0.5) * 0.3, wy: 1, speed: 5.4, crouch: false, jump }, DT);
+      if (m.onGround) assert.equal(m.vz, 0, `trial ${trial} tick ${i}`);
+    }
+  }
+  // 후카 계단에서 점프 → 후카 → 창문으로 걸어 나가면 0.9m 만 떨어지고 위로 뜨지 않는다
+  const m = createMover(28, 19.3, 0);
+  stepMover(m, map, { wx: 0, wy: 1, speed: 5.4, crouch: false, jump: true }, DT);
+  for (let i = 0; i < 128 * 2; i++) stepMover(m, map, { wx: 0, wy: 1, speed: 5.4, crouch: false, jump: false }, DT);
+  m.x = 23.5;
+  m.y = 37;
+  let peak = m.z;
+  for (let i = 0; i < 128 * 2; i++) {
+    stepMover(m, map, { wx: 0, wy: 1, speed: 5.4, crouch: false, jump: false }, DT);
+    peak = Math.max(peak, m.z);
+  }
+  assert.ok(peak <= 0.9 + 1e-6, `peak ${peak}`);
+});
+
+test('각 잡기 데이터: 숨는 곳 → (경유) → 피킹 지점이 왕복으로 걸어서 이어지고, 숨는 곳은 내 자리에서 안 보인다', () => {
+  for (const h of BIND.holds) {
+    const eye = map.floorAt(h.at[0], h.at[1]) + 1.6;
+    for (const l of h.peeks) {
+      const pts = l.via ? [l.hide, l.via, l.peek] : [l.hide, l.peek];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [a, b] = [pts[i], pts[i + 1]];
+        assert.ok(segmentWalkable(map, a[0], a[1], b[0], b[1]), `${h.id}: ${a} → ${b}`);
+        assert.ok(segmentWalkable(map, b[0], b[1], a[0], a[1]), `${h.id}: ${b} → ${a}`);
+      }
+      const hz = map.floorAt(l.hide[0], l.hide[1]) + 1.55;
+      const hit = map.raycast(h.at[0], h.at[1], eye, ...(() => {
+        const d = [l.hide[0] - h.at[0], l.hide[1] - h.at[1], hz - eye];
+        const L = Math.hypot(...d);
+        return [d[0] / L, d[1] / L, d[2] / L, L];
+      })());
+      assert.ok(hit, `${h.id}: 숨는 곳 ${l.hide} 이 내 자리에서 보임`);
+      // 피킹 지점은 내 자리에서 보여야 연습이 됨
+      const pz = map.floorAt(l.peek[0], l.peek[1]) + 1.55;
+      const d = [l.peek[0] - h.at[0], l.peek[1] - h.at[1], pz - eye];
+      const L = Math.hypot(...d);
+      const ph = map.raycast(h.at[0], h.at[1], eye, d[0] / L, d[1] / L, d[2] / L, L);
+      assert.ok(!ph || ph.t >= L - 0.05, `${h.id}: 피킹 지점 ${l.peek} 이 내 자리에서 안 보임`);
+    }
+  }
+});
+
+test('각 잡기: 모든 자리에서 봇이 계속 숨었다 나왔다 한다 (걸리거나 계속 보이는 채로 멈추지 않음)', () => {
+  for (const h of BIND.holds) {
+    for (let seed = 1; seed <= 6; seed++) {
+      const g = createGame(map, { ...DEFAULTS, mode: 'hold', hold: h.id }, seeded(seed * 97 + 5));
+      const T = 128 * 150;
+      let visTicks = 0;
+      let run = 0;
+      let maxVisRun = 0;
+      let hiddenRun = 0;
+      let maxHiddenRun = 0;
+      let lastSeen = -1;
+      for (let i = 0; i < T; i++) {
+        g.step();
+        g.events.length = 0;
+        const b = g.bots[0];
+        assert.ok(map.walkable(b.mover.x, b.mover.y), `${h.id}: 봇이 벽 속`);
+        if (b.visible) {
+          visTicks++;
+          run++;
+          hiddenRun = 0;
+          lastSeen = i;
+        } else {
+          run = 0;
+          hiddenRun++;
+        }
+        maxVisRun = Math.max(maxVisRun, run);
+        if (i > 128 * 5) maxHiddenRun = Math.max(maxHiddenRun, hiddenRun);
+      }
+      const frac = visTicks / T;
+      assert.ok(frac > 0.02 && frac < 0.75, `${h.id} seed ${seed}: 보이는 비율 ${frac.toFixed(3)}`);
+      // 먼 길(U홀 → 램프)을 걸어서 가로지르면 실제로도 그동안 보이므로 12초까지는 정상
+      assert.ok(maxVisRun < 128 * 12, `${h.id} seed ${seed}: ${(maxVisRun / 128).toFixed(1)}초 동안 계속 보임`);
+      assert.ok(maxHiddenRun < 128 * 15, `${h.id} seed ${seed}: ${(maxHiddenRun / 128).toFixed(1)}초 동안 안 나옴`);
+      assert.ok(lastSeen > T - 128 * 20, `${h.id} seed ${seed}: 마지막 20초 동안 한 번도 안 나옴`);
+    }
+  }
+});
+
+test('봇이 "보인다"는 건 화면 안에 있을 때만 (등 뒤는 미니맵·반응 시간에 안 들어감)', () => {
+  const g = createGame(map, { ...DEFAULTS, mode: 'free' }, seeded(2));
+  const b = createBot(map, 0, 12, { face: 180 });
+  g.bots.push(b);
+  g.player.mover.x = 0;
+  g.player.mover.y = 4;
+  g.yaw = 0;
+  g.step();
+  assert.equal(b.visible, true);
+  g.yaw = 180;
+  b.visibleSince = -1;
+  g.step();
+  assert.equal(b.visible, false);
+  assert.equal(b.visibleSince, -1);
+});

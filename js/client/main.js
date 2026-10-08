@@ -80,6 +80,13 @@ const menu = createMenu(S, {
     saveSettings(storage, settings);
     if (key === 'enemyColor') botView.setColor(ENEMY_COLORS[settings.enemyColor] || ENEMY_COLORS.red);
     if (key === 'volume') audio.setVolume(settings.volume);
+    // 누르고 있기 ↔ 토글을 바꾸면 남아 있던 토글 상태를 지움 (조준이 혼자 켜져 있는 일 방지)
+    if (key === 'adsMode') {
+      adsToggle = false;
+      game.input.ads = false;
+    }
+    if (key === 'walkMode') walkToggle = false;
+    if (key === 'crouchMode') crouchToggle = false;
     if (reset) {
       game.reset();
       fx.clearDecals();
@@ -282,7 +289,18 @@ window.addEventListener('mouseup', (e) => {
   if (e.button === 0) game.input.fire = false;
   if (e.button === 2 && S.adsMode !== 'toggle') game.input.ads = false;
 });
-window.addEventListener('contextmenu', (e) => e.preventDefault());
+// 우클릭(조준) 메뉴는 막되, 크로스헤어 코드 칸에서는 오른쪽 클릭 → 붙여넣기가 되게
+window.addEventListener('contextmenu', (e) => {
+  if (!(e.target instanceof Element && e.target.closest('input, textarea'))) e.preventDefault();
+});
+
+/** 재장전·무기 교체·부활로 조준이 풀리면 토글 조준도 같이 풀기 (다시 눌러야 조준) */
+function dropToggleAds() {
+  if (S.adsMode === 'toggle') {
+    adsToggle = false;
+    game.input.ads = false;
+  }
+}
 
 function onMouseMove(e) {
   if (!locked) return;
@@ -350,8 +368,10 @@ function handleEvents() {
       }
       case 'reload':
         reloadSounds();
+        dropToggleAds();
         break;
       case 'equip':
+        dropToggleAds();
         audio.click(1.4);
         for (const t of reloadTimers) clearTimeout(t);
         break;
@@ -387,6 +407,7 @@ function handleEvents() {
         break;
       case 'reset':
       case 'respawn':
+        dropToggleAds();
         fx.clearDecals();
         snapInterp();
         break;
@@ -408,6 +429,7 @@ function savePrev() {
     b.px = b.mover.x;
     b.py = b.mover.y;
     b.pz = b.mover.z;
+    b.pm = b.mover;
   }
 }
 function snapInterp() {
@@ -466,7 +488,8 @@ function frame(now) {
   camera.updateProjectionMatrix();
 
   for (const b of game.bots) {
-    const a = b.px === undefined ? 1 : alpha;
+    // 다시 나타난 봇(mover 가 새로 바뀜)은 시체 자리에서 끌려오지 않게 바로 새 자리에
+    const a = b.px === undefined || b.pm !== b.mover ? 1 : alpha;
     b.rx = (b.px ?? b.mover.x) + (b.mover.x - (b.px ?? b.mover.x)) * a;
     b.ry = (b.py ?? b.mover.y) + (b.mover.y - (b.py ?? b.mover.y)) * a;
     b.rz = (b.pz ?? b.mover.z) + (b.mover.z - (b.pz ?? b.mover.z)) * a;

@@ -75,7 +75,7 @@ export function loadSettings(storage) {
   } catch {
     saved = null;
   }
-  return deepMerge(DEFAULTS, saved);
+  return deepMerge(structuredClone(DEFAULTS), saved);
 }
 
 export function saveSettings(storage, s) {

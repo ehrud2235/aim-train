@@ -1,7 +1,7 @@
 // 연습장 한 판의 계산: 플레이어, 밴달, 봇, 모드, 기록, 텔레포터, 문.
 // 화면·소리는 client 쪽이 events 를 받아서 처리한다.
 
-import { TICK_HZ, VANDAL, HP_FULL, MOVE } from './valorant.js';
+import { TICK_HZ, VANDAL, HP_FULL, MOVE, HFOV, zoomedHfov } from './valorant.js';
 import { createMover, stepMover, maxSpeed, eyeHeight, accuracyState, horizSpeed } from './movement.js';
 import { createWeapon, stepWeapon, weaponSpeed, isAds, currentRecoil, switchTo, startReload } from './weapon.js';
 import { createBot, stepBot, rayBot, respawnBot, lineOfSight, headingVec, segmentWalkable } from './bots.js';
@@ -113,6 +113,7 @@ export function resetMode(g) {
     placePlayer(g, h.at, h.heading);
     const lane = h.peeks[Math.floor(g.rng() * h.peeks.length)];
     const b = createBot(g.map, lane.hide[0], lane.hide[1], { behavior: 'peek', peeks: h.peeks });
+    b.lane = lane;
     b.timer = 0.8;
     g.bots.push(b);
   } else if (s.mode === 'duel') {
@@ -353,8 +354,9 @@ function stepGame(g) {
           g.events.push({ type: 'footstep', who: b.id, x: bm.x, y: bm.y, z: bm.z });
         }
       }
-      // 보이기 시작한 순간 기록 (반응 속도)
-      const vis = lineOfSight(g.map, m.x, m.y, eye, bm.x, bm.y, bm.z + 1.55 - bm.crouch * 0.42);
+      // 보이기 시작한 순간 기록 (반응 속도): 화면 안에 있고 가려지지 않았을 때
+      const headZ = bm.z + 1.55 - bm.crouch * 0.42;
+      const vis = inView(g, m, eye, bm.x, bm.y, headZ) && lineOfSight(g.map, m.x, m.y, eye, bm.x, bm.y, headZ);
       if (vis && b.visibleSince < 0) b.visibleSince = g.time;
       if (!vis && b.visibleSince >= 0 && g.time - b.visibleSince > 1.5) b.visibleSince = -1;
       b.visible = vis;
@@ -402,6 +404,17 @@ function stepGame(g) {
     g.lastRegion = reg;
     g.events.push({ type: 'region', label: reg.label });
   }
+}
+
+/** 그 점이 지금 화면(가로 103°, 조준 시 줌) 안에 들어오는지. 세로는 16:9 기준 */
+function inView(g, m, eye, x, y, z) {
+  const hf = HFOV + (zoomedHfov(VANDAL.zoom) - HFOV) * g.weapon.ads;
+  const vf = (2 * Math.atan(Math.tan((hf / 2) * DEG) / (16 / 9))) / DEG;
+  const dx = x - m.x;
+  const dy = y - m.y;
+  const dYaw = ((Math.atan2(dx, dy) / DEG - g.yaw + 540) % 360) - 180;
+  const dPitch = Math.atan2(z - eye, Math.hypot(dx, dy)) / DEG - g.pitch;
+  return Math.abs(dYaw) <= hf / 2 && Math.abs(dPitch) <= vf / 2;
 }
 
 /** 총알 한 발: 반동 + 퍼짐 → 광선 → 벽/봇 */
