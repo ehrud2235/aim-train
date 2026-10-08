@@ -4,23 +4,30 @@
 그래픽은 최소한(면 색 + 1m 타일 무늬)이고, 대신 **맵 구조·이동·사격 규칙을 발로란트 수치에 맞췄어요.**
 맵이 눈에 익은 상태에서 연습해야 인게임에서도 그 에임이 나온다는 생각으로 만들었습니다.
 
-## 바로 하기 (윈도우, 터미널 필요 없음)
+## 바로 하기 — 설치 없음
 
-1. <https://nodejs.org> 에서 **LTS** 버전을 설치합니다. (한 번만)
-2. 이 저장소를 내려받아 압축을 풉니다. (GitHub → 브랜치 고르기 → **Code → Download ZIP**)
-3. `valoaim` 폴더 안의 **`start-windows.bat`** 을 더블클릭합니다.
-4. 2초 뒤 브라우저가 `http://localhost:3300` 으로 열립니다. 연습하는 동안 **검은 창을 닫지 마세요.**
+**👉 https://ehrud2235.github.io/aim-train/**
 
-처음 한 번만 파일을 받느라 조금 걸리고, 그다음부터는 바로 켜집니다.
-크롬 또는 엣지 권장 (마우스 원시 입력 지원). 화면의 **연습 시작**을 누르면 전체화면 + 마우스 잠금이 됩니다.
+크롬 또는 엣지로 열고 **연습 시작**을 누르면 전체화면 + 마우스 잠금이 됩니다. 설치할 건 없어요.
+(크롬·엣지는 마우스 원시 입력을 지원해서 감도가 발로란트와 똑같이 맞습니다)
 
-터미널로 할 때는:
+이 저장소에 푸시하면 1~2분 뒤 같은 주소에 자동으로 반영돼요 (GitHub Pages).
 
-```bash
-cd valoaim
-npm install
-npm start          # http://localhost:3300
-```
+<details>
+<summary>처음 한 번: GitHub Pages 켜기 (저장소 주인만)</summary>
+
+1. 저장소 **Settings → Pages**
+2. **Build and deployment → Source: Deploy from a branch**
+3. **Branch: `main`**, 폴더 **`/ (root)`** → **Save**
+4. 1~2분 뒤 위 주소가 열립니다. (무료 계정은 저장소가 Public 이어야 해요)
+</details>
+
+<details>
+<summary>인터넷 없이 내 PC 에서 열기</summary>
+
+Node.js(https://nodejs.org LTS)가 있으면 `start-windows.bat` 더블클릭, 또는 터미널에서 `node server.js` → http://localhost:3300 .
+추가로 설치할 패키지는 없어요.
+</details>
 
 ### 내 감도 (기본값)
 
@@ -45,7 +52,7 @@ npm start          # http://localhost:3300
 
 ## 들어간 발로란트 규칙
 
-[확인] = 공개된 수치, [추정] = 인게임 감각·측정에 맞춘 근사값. 전부 `public/js/sim/valorant.js` 한 파일에 있어서 숫자만 고치면 됩니다.
+[확인] = 공개된 수치, [추정] = 인게임 감각·측정에 맞춘 근사값. 전부 `js/sim/valorant.js` 한 파일에 있어서 숫자만 고치면 됩니다.
 
 **밴달**
 - 연사 9.75발/초, 조준 시 0.9배(8.775발/초) [확인]
@@ -80,7 +87,7 @@ npm start          # http://localhost:3300
 ## 알아둘 점
 
 - **맵은 바인드 구조(위치 관계·동선·이름)를 따라 직접 쌓은 것**이라 실제 인게임과 몇 m 씩 차이가 날 수 있어요.
-  `public/js/sim/bind.js` 에 사각형 데이터로 들어 있어서, 어디가 다르다고 알려 주시면(미니맵 캡처가 있으면 더 좋아요) 바로 고칠 수 있어요.
+  `js/sim/bind.js` 에 사각형 데이터로 들어 있어서, 어디가 다르다고 알려 주시면(미니맵 캡처가 있으면 더 좋아요) 바로 고칠 수 있어요.
 - 벽 관통(월뱅)은 아직 없습니다 — 모든 벽이 총알을 막아요.
 - 브라우저 화면 주사율(rAF)에 맞춰 그립니다. 144Hz 모니터면 144FPS까지.
 - `Ctrl` + `W` 는 브라우저 탭 닫기라서, 전체화면이 아닐 때는 앉기를 `C` 로 쓰세요. (전체화면에서는 막아 둡니다)
@@ -99,17 +106,12 @@ npm start          # http://localhost:3300
 | 360° 감도 확인 | `F2` |
 | 메뉴 | `Esc` |
 
-## 인터넷에 올리기 (Render 무료)
-
-저장소 최상위 `render.yaml` 블루프린트에 **`valo-aim`** 서비스로 들어 있어요. 다른 게임과는 서버도 주소도 따로입니다.
-이미 블루프린트로 올려 둔 게 있다면 Render 대시보드 → Blueprints → 이 저장소 → **Sync** 하면 추가됩니다.
-직접 만들 때는 New + → Web Service → Root Directory `valoaim`, Build `npm ci --omit=dev`, Start `npm start`, Health Check `/healthz`.
-
 ## 구조
 
 ```
-server.js                 정적 파일 + Three.js 제공 (혼자 하는 연습장이라 서버 계산 없음)
-public/js/sim/            화면과 상관없는 계산 (node 테스트에서 그대로 돌아감)
+index.html, style.css     화면 (GitHub Pages 가 그대로 제공)
+vendor/three/             Three.js r186 (MIT) — 인터넷 CDN 없이 저장소에 같이 들어 있음
+js/sim/                   화면과 상관없는 계산 (node 테스트에서 그대로 돌아감)
   valorant.js             발로란트 수치 전부 (감도 공식, 밴달, 이동, 판정 박스)
   bind.js                 바인드 맵 데이터 (구역 사각형, 계단, 상자, 텔레포터, 연습 자리)
   mapgrid.js              맵 → 0.25m 높이 격자 (충돌·총알·그리기 공용), 총알 광선 판정
@@ -118,6 +120,7 @@ public/js/sim/            화면과 상관없는 계산 (node 테스트에서 �
   bots.js                 봇 판정 박스, 스트레이프·피킹·돌아다니기·반격
   game.js                 모드, 사격 판정, 기록, 텔레포터, 문
   settings.js             설정 저장, 발로 크로스헤어 코드 읽기
-public/js/client/         Three.js 화면, HUD, 소리, 메뉴
-test/                     수치·맵 연결·판정·서버 테스트 (npm test)
+js/client/                Three.js 화면, HUD, 소리, 메뉴
+server.js                 내 PC 에서 열 때 쓰는 정적 파일 서버 (패키지 설치 없음)
+test/                     수치·맵 연결·판정·배포 파일 테스트 (npm test, 설치 없이 바로)
 ```

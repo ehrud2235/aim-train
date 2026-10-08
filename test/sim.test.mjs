@@ -1,14 +1,14 @@
 // 발로란트 수치·맵·판정 테스트: node --test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BIND } from '../public/js/sim/bind.js';
-import { buildMap, K } from '../public/js/sim/mapgrid.js';
-import { createMover, stepMover, maxSpeed, horizSpeed, groundHeight } from '../public/js/sim/movement.js';
-import { createWeapon, stepWeapon, movementError, currentSpread, switchTo } from '../public/js/sim/weapon.js';
-import { createBot, rayBot, segmentWalkable } from '../public/js/sim/bots.js';
-import { createGame, DT, offsetDir, placeBotAtAim } from '../public/js/sim/game.js';
-import { cmPer360, zoomedHfov, VANDAL, MOVE, YAW_PER_COUNT } from '../public/js/sim/valorant.js';
-import { DEFAULTS, parseCrosshairCode } from '../public/js/sim/settings.js';
+import { BIND } from '../js/sim/bind.js';
+import { buildMap, K } from '../js/sim/mapgrid.js';
+import { createMover, stepMover, maxSpeed, horizSpeed, groundHeight } from '../js/sim/movement.js';
+import { createWeapon, stepWeapon, movementError, currentSpread, switchTo } from '../js/sim/weapon.js';
+import { createBot, rayBot, segmentWalkable } from '../js/sim/bots.js';
+import { createGame, DT, offsetDir, placeBotAtAim } from '../js/sim/game.js';
+import { cmPer360, zoomedHfov, VANDAL, MOVE, YAW_PER_COUNT } from '../js/sim/valorant.js';
+import { DEFAULTS, parseCrosshairCode } from '../js/sim/settings.js';
 
 const map = buildMap(BIND);
 const near = (a, b, eps) => Math.abs(a - b) <= eps;

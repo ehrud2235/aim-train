@@ -1,8 +1,7 @@
 {
-  "name": "valo-aim",
+  "name": "aim-train",
   "version": "1.0.0",
-  "description": "발로 에임장 — 발로란트 바인드 맵 기반 밴달 에임 연습",
-  "main": "server.js",
+  "description": "발로 에임장 — 발로란트 바인드 맵 기반 밴달 에임 연습 (설치 없이 웹에서)",
   "private": true,
   "scripts": {
     "start": "node server.js",
@@ -10,8 +9,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "dependencies": {
-    "three": "^0.186.0"
   }
 }
