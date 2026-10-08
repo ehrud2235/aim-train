@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>발로 에임장 — 바인드</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <div id="hud" class="hidden">
+    <canvas id="crosshair"></canvas>
+    <div id="minimap-box"><canvas id="minimap" width="230" height="230"></canvas></div>
+    <div id="region"></div>
+    <div id="speed" class="hidden"><div id="speed-bar"><i id="speed-fill"></i><i id="speed-thr"></i></div><span id="speed-txt"></span></div>
+    <div id="bottom">
+      <div id="hp"><b id="hp-num">150</b><span>체력</span></div>
+      <div id="ammo"><b id="ammo-num">25</b><span id="ammo-res">/ ∞</span><small id="weapon-name">VANDAL</small></div>
+    </div>
+    <div id="banner"></div>
+    <div id="toast"></div>
+    <div id="hurt"></div>
+    <div id="dead" class="hidden">사망</div>
+    <div id="stats" class="hidden"></div>
+    <div id="bigmap" class="hidden"><canvas id="bigmap-canvas"></canvas></div>
+    <div id="fps"></div>
+  </div>
+
+  <div id="menu"><div class="panel"></div></div>
+
+  <noscript>자바스크립트를 켜야 합니다.</noscript>
+  <script type="module" src="js/client/main.js"></script>
+</body>
+</html>
