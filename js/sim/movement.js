@@ -222,24 +222,26 @@ export function groundHeight(map, x, y, limit) {
   return g;
 }
 
-function overlapsXY(b, x, y, r) {
-  return x + r > b.x0 && x - r < b.x1 && y + r > b.y0 && y - r < b.y1;
-}
-
+/** 몸통(z0~z1)이 들어갈 자리에 위쪽 막힘(창문·문 윗벽)이 걸리는지 */
 function blockedOverhead(map, x, y, z0, z1) {
   const r = MOVE.radius;
-  for (const b of map.overhead) {
-    if (overlapsXY(b, x, y, r) && z1 > b.z0 && z0 < b.z1) return true;
+  const c = map.cell;
+  const i0 = Math.floor((x - r - map.x0) / c);
+  const i1 = Math.floor((x + r - map.x0) / c);
+  const j0 = Math.floor((y - r - map.y0) / c);
+  const j1 = Math.floor((y + r - map.y0) / c);
+  for (let j = j0; j <= j1; j++) {
+    for (let i = i0; i <= i1; i++) {
+      if (i < 0 || j < 0 || i >= map.nx || j >= map.ny) return true;
+      const C = map.ceil[j * map.nx + i];
+      if (C < z1 && C > z0 - 0.5) return true;
+    }
   }
   return false;
 }
 
 function hitsCeiling(map, x, y, head) {
-  const r = MOVE.radius;
-  for (const b of map.overhead) {
-    if (overlapsXY(b, x, y, r) && head > b.z0 && head < b.z1 + 0.5) return true;
-  }
-  return false;
+  return blockedOverhead(map, x, y, head - 0.3, head);
 }
 
 function canStand(m, map) {

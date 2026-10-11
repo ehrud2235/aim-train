@@ -5,6 +5,8 @@ import { TICK_HZ, VANDAL, HP_FULL, MOVE, HFOV, zoomedHfov } from './valorant.js'
 import { createMover, stepMover, maxSpeed, eyeHeight, accuracyState, horizSpeed } from './movement.js';
 import { createWeapon, stepWeapon, weaponSpeed, isAds, currentRecoil, switchTo, startReload } from './weapon.js';
 import { createBot, stepBot, rayBot, respawnBot, lineOfSight, headingVec, segmentWalkable } from './bots.js';
+import { buildNav, navNodes, nodePos } from './nav.js';
+import { autoLanes, autoDuel, snapSpot } from './spots.js';
 import { FIGHT_LEVELS } from './settings.js';
 
 const DEG = Math.PI / 180;
@@ -85,7 +87,7 @@ function fightCfg(g) {
 }
 
 function placePlayer(g, at, heading) {
-  const [x, y] = at;
+  const [x, y] = g.map.walkable(at[0], at[1]) ? at : snapSpot(navOf(g.map), at[0], at[1]);
   g.player = {
     mover: createMover(x, y, g.map.floorAt(x, y)),
     hp: HP_FULL,
@@ -109,27 +111,35 @@ export function resetMode(g) {
 
   if (s.mode === 'hold') {
     const h = def.holds.find((x) => x.id === s.hold) || def.holds[0];
-    g.modeStart = { at: h.at, heading: h.heading };
-    placePlayer(g, h.at, h.heading);
-    const lane = h.peeks[Math.floor(g.rng() * h.peeks.length)];
-    const b = createBot(g.map, lane.hide[0], lane.hide[1], { behavior: 'peek', peeks: h.peeks });
+    const { at, lanes } = holdSetup(g, h);
+    g.modeStart = { at, heading: h.heading };
+    placePlayer(g, at, h.heading);
+    const lane = lanes[Math.floor(g.rng() * lanes.length)];
+    const b = createBot(g.map, lane.hide[0], lane.hide[1], { behavior: 'peek', peeks: lanes });
     b.lane = lane;
     b.timer = 0.8;
     g.bots.push(b);
   } else if (s.mode === 'duel') {
     const d = def.duels.find((x) => x.id === s.duel) || def.duels[0];
-    g.modeStart = { at: d.at, heading: d.heading };
-    placePlayer(g, d.at, d.heading);
-    const axis = d.axis === 'x' ? [1, 0] : [0, 1];
-    const toPlayer = (Math.atan2(d.at[0] - d.bot[0], d.at[1] - d.bot[1]) / DEG + 360) % 360;
-    g.bots.push(createBot(g.map, d.bot[0], d.bot[1], { behavior: s.duelBehavior === 'static' ? 'static' : 'strafe', axis, span: d.span, face: toPlayer }));
+    const setup = duelSetup(g, d);
+    g.modeStart = { at: setup.at, heading: d.heading };
+    placePlayer(g, setup.at, d.heading);
+    const toPlayer = (Math.atan2(setup.at[0] - setup.bot[0], setup.at[1] - setup.bot[1]) / DEG + 360) % 360;
+    g.bots.push(
+      createBot(g.map, setup.bot[0], setup.bot[1], {
+        behavior: s.duelBehavior === 'static' ? 'static' : 'strafe',
+        axis: setup.axis,
+        span: d.span,
+        face: toPlayer,
+      }),
+    );
   } else if (s.mode === 'dm') {
     const sp = def.spawns.attacker;
     g.modeStart = { at: sp.at, heading: sp.heading };
     placePlayer(g, sp.at, sp.heading);
     const n = Math.max(1, Math.min(16, s.dmBots | 0));
     for (let i = 0; i < n; i++) {
-      const b = createBot(g.map, 0, 0, {});
+      const b = createBot(g.map, sp.at[0], sp.at[1], {});
       g.bots.push(b);
       dmRespawn(g, b, true);
     }
@@ -140,6 +150,38 @@ export function resetMode(g) {
   }
 }
 
+/** 맵마다 한 번: 봇 길찾기 격자 */
+export function navOf(map) {
+  if (!map.nav) map.nav = buildNav(map);
+  return map.nav;
+}
+
+/** 각 잡기 자리: 내 자리(내비 칸에 맞춤) + 실제 지형에서 찾은 모서리들 (맵마다 한 번 계산) */
+export function holdSetup(g, h) {
+  const cache = (g.map.holdCache ||= {});
+  if (!cache[h.id]) {
+    const nav = navOf(g.map);
+    const at = snapSpot(nav, h.at[0], h.at[1]);
+    const lanes = autoLanes(g.map, nav, at, h.heading, { maxDist: h.maxDist || 42 });
+    cache[h.id] = { at, lanes };
+  }
+  return cache[h.id];
+}
+
+export function duelSetup(g, d) {
+  const cache = (g.map.duelCache ||= {});
+  if (!cache[d.id]) {
+    const nav = navOf(g.map);
+    const at = snapSpot(nav, d.at[0], d.at[1]);
+    const r = autoDuel(g.map, nav, at, d.heading, d.dist, d.span) || {
+      bot: [at[0] + Math.sin(d.heading * DEG) * d.dist, at[1] + Math.cos(d.heading * DEG) * d.dist],
+      axis: [Math.cos(d.heading * DEG), -Math.sin(d.heading * DEG)],
+    };
+    cache[d.id] = { at, bot: r.bot, axis: r.axis };
+  }
+  return cache[d.id];
+}
+
 function dmBehavior(g) {
   const mode = g.settings.dmBehavior;
   if (mode === 'static' || mode === 'strafe' || mode === 'wander') return mode;
@@ -147,28 +189,22 @@ function dmBehavior(g) {
   return r < 0.6 ? 'wander' : r < 0.8 ? 'strafe' : 'static';
 }
 
-/** 데스매치 봇 다시 놓기: 플레이어에게서 10m 이상, 보이지 않는 곳 */
+/** 데스매치 봇 다시 놓기: 맵 아무 데나(플레이어에게서 12m 이상, 보이지 않는 곳) */
 function dmRespawn(g, bot, initial = false) {
-  const def = g.map.def;
-  const keys = Object.keys(def.botPoints);
+  const nav = navOf(g.map);
+  const nodes = navNodes(nav);
   const p = g.player.mover;
   const eye = p.z + eyeHeight(p);
-  for (let tries = 0; tries < 40; tries++) {
-    const key = keys[Math.floor(g.rng() * keys.length)];
-    const pts = def.botPoints[key];
-    const pt = pts[Math.floor(g.rng() * pts.length)];
-    const jx = pt[0] + (g.rng() - 0.5) * 1.2;
-    const jy = pt[1] + (g.rng() - 0.5) * 1.2;
-    if (!g.map.walkable(jx, jy)) continue;
+  for (let tries = 0; tries < 60; tries++) {
+    const [jx, jy] = nodePos(nav, nodes[Math.floor(g.rng() * nodes.length)]);
     const d = Math.hypot(jx - p.x, jy - p.y);
-    if (d < 10) continue;
+    if (d < 12) continue;
     const z = g.map.floorAt(jx, jy);
-    if (!initial && tries < 30 && lineOfSight(g.map, p.x, p.y, eye, jx, jy, z + 1.5)) continue;
-    if (g.bots.some((o) => o !== bot && o.alive && Math.hypot(o.mover.x - jx, o.mover.y - jy) < 2)) continue;
-    const face = g.rng() * 360;
-    respawnBot(bot, g.map, jx, jy, face);
+    if (!initial && tries < 45 && lineOfSight(g.map, p.x, p.y, eye, jx, jy, z + 1.5)) continue;
+    if (g.bots.some((o) => o !== bot && o.alive && Math.hypot(o.mover.x - jx, o.mover.y - jy) < 3)) continue;
+    respawnBot(bot, g.map, jx, jy, g.rng() * 360);
     bot.behavior = dmBehavior(g);
-    bot.points = pts.concat(neighborPoints(g, key));
+    bot.path = null;
     const a = g.rng() * Math.PI;
     bot.axis = [Math.cos(a), Math.sin(a)];
     bot.span = 2.2;
@@ -178,31 +214,6 @@ function dmRespawn(g, bot, initial = false) {
     bot.spawnTime = g.time;
     return;
   }
-}
-
-function neighborPoints(g, key) {
-  // 같은 위치 이름 + 이어진 몇 군데 (위치 이름 순서상 이웃)
-  const NEAR = {
-    aSite: ['aHeaven', 'aLamps'],
-    aHeaven: ['aSite', 'heavenHall'],
-    aLamps: ['aSite', 'aShort', 'uHall'],
-    aShort: ['aLamps', 'aLobby'],
-    aBath: ['aLobby', 'aSite'],
-    aLobby: ['aShort', 'aBath', 'atkSpawn'],
-    uHall: ['aLamps', 'defSpawn'],
-    heavenHall: ['aHeaven', 'defSpawn'],
-    defSpawn: ['uHall', 'elbow', 'heavenHall'],
-    atkSpawn: ['aLobby', 'bShort'],
-    bShort: ['atkSpawn', 'hookah', 'bLong'],
-    hookah: ['bShort', 'bSite'],
-    bSite: ['hookah', 'garden', 'elbow'],
-    garden: ['bSite', 'bLong'],
-    bLong: ['garden', 'bShort'],
-    elbow: ['bSite', 'defSpawn'],
-  };
-  const out = [];
-  for (const k of NEAR[key] || []) out.push(...(g.map.def.botPoints[k] || []));
-  return out;
 }
 
 /** 내가 보는 곳 바닥에 가만히 있는 봇 놓기 (아무 모드에서나 B) */
@@ -332,6 +343,7 @@ function stepGame(g) {
   const eye = m.z + eyeHeight(m);
   const ctx = {
     map: g.map,
+    nav: navOf(g.map),
     dt,
     rng: g.rng,
     now: g.time,
@@ -388,7 +400,8 @@ function stepGame(g) {
           b.spawnTime = g.time;
         } else if (g.settings.mode === 'duel') {
           const d = g.map.def.duels.find((x) => x.id === g.settings.duel) || g.map.def.duels[0];
-          respawnBot(b, g.map, d.bot[0], d.bot[1]);
+          const setup = duelSetup(g, d);
+          respawnBot(b, g.map, setup.bot[0], setup.bot[1]);
           b.spawnTime = g.time;
         }
       }

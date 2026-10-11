@@ -44,6 +44,7 @@ export const DEFAULTS = {
   fight: 'off', // 'off' | 'easy' | 'normal' | 'hard'
   showMinimap: true,
   fullscreen: true,
+  shadows: 'low', // 'off' | 'low' | 'high'
 };
 
 export const FIGHT_LEVELS = {

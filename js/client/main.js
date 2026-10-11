@@ -1,7 +1,7 @@
 // 발로 에임장 — 화면·입력·루프. 계산은 sim/ 쪽(128틱 고정), 여기서는 그리고 소리 내고 입력만 받는다.
 import * as THREE from 'three';
 import { BIND } from '../sim/bind.js';
-import { buildMap } from '../sim/mapgrid.js';
+import { buildMap, parseGrid } from '../sim/mapgrid.js';
 import { HFOV, VANDAL, YAW_PER_COUNT, ENEMY_COLORS, zoomedHfov } from '../sim/valorant.js';
 import { loadSettings, saveSettings } from '../sim/settings.js';
 import {
@@ -39,17 +39,31 @@ const storage = (() => {
 })();
 
 const S = loadSettings(storage);
-const map = buildMap(BIND);
+
+/** 맵 격자 받기 (gzip). 서버가 이미 풀어서 주면 그대로 쓴다 */
+async function loadGrid(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`맵을 못 받음: ${res.status}`);
+  const buf = new Uint8Array(await res.arrayBuffer());
+  if (buf[0] !== 0x1f || buf[1] !== 0x8b) return buf;
+  const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+const map = buildMap(parseGrid(await loadGrid(BIND.grid)), BIND);
 const game = createGame(map, S);
 
 // ── 렌더러 ──
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.autoClear = false;
+if (S.shadows !== 'off') {
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+}
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.03, 400);
 camera.rotation.order = 'YXZ';
-const world = buildWorld(map, scene);
+const world = buildWorld(map, scene, { shadows: S.shadows === 'off' ? null : S.shadows });
 const botView = createBotView(scene, ENEMY_COLORS[S.enemyColor] || ENEMY_COLORS.red);
 const fx = createFx(scene);
 const vm = createViewmodel();

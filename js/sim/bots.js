@@ -4,6 +4,7 @@
 import { createMover, stepMover, horizSpeed, groundHeight } from './movement.js';
 import { VANDAL, MOVE, HITBOX, HP_FULL } from './valorant.js';
 import { rayBox } from './mapgrid.js';
+import { findPath, navNodes, nodePos } from './nav.js';
 
 const DEG = Math.PI / 180;
 let nextId = 1;
@@ -36,8 +37,8 @@ export function createBot(map, x, y, opts = {}) {
     lane: null,
     phase: 'hidden',
     target: null,
-    // 돌아다니기
-    points: opts.points || null,
+    // 돌아다니기 (길찾기 경로)
+    path: null,
     // 반격
     seeT: 0,
     fireCd: 0,
@@ -140,6 +141,18 @@ function seek(bot, tx, ty) {
   const stopDist = (v * v) / (2 * MOVE.brake) + 0.05;
   if (d <= stopDist || d < 0.12) return { wx: 0, wy: 0, arrived: d < 0.35 && v < 0.6 };
   return { wx: dx / d, wy: dy / d, arrived: false };
+}
+
+function pickWanderTarget(bot, ctx, rng) {
+  if (!ctx.nav) return null;
+  const nodes = navNodes(ctx.nav);
+  const m = bot.mover;
+  for (let tries = 0; tries < 20; tries++) {
+    const q = nodePos(ctx.nav, nodes[Math.floor(rng() * nodes.length)]);
+    const d = Math.hypot(q[0] - m.x, q[1] - m.y);
+    if (d > 8 && d < 30) return q;
+  }
+  return null;
 }
 
 /** 지금 자리에서 숨는 곳까지 걸어갈 수 있는 피킹 길 중 하나 (없으면 지금 길 유지) */
@@ -278,7 +291,15 @@ export function stepBot(bot, ctx) {
         if (s.done) {
           bot.phase = 'hidden';
           bot.timer = rand(rng, 0.5, 2.4);
-          bot.lane = pickLane(bot, map, rng);
+          // 다음 피킹 자리: 숨는 곳끼리는 안 보이는 곳이므로 바로 옮긴다 (보이는 길로 걸어서 옮겨 다니지 않게)
+          const next = bot.peeks[Math.floor(rng() * bot.peeks.length)];
+          if (next !== bot.lane) {
+            bot.lane = next;
+            m.x = next.hide[0];
+            m.y = next.hide[1];
+            m.z = map.floorAt(m.x, m.y);
+            m.vx = m.vy = m.vz = 0;
+          }
         }
       }
       // 어딘가 걸려서 못 움직이면 숨는 자리로 되돌림 (안전장치). 멈춰서 쏘는 중이면 걸린 게 아님
@@ -315,32 +336,27 @@ export function stepBot(bot, ctx) {
       }
       if (!bot.target) {
         if (bot.timer <= 0) {
-          const choices = bot.points.filter(
-            (q) => Math.hypot(q[0] - m.x, q[1] - m.y) > 1.5 && segmentWalkable(map, m.x, m.y, q[0], q[1]),
-          );
-          if (choices.length) {
-            bot.target = choices[Math.floor(rng() * choices.length)];
-            bot.walk = rng() < 0.3;
-          } else {
-            bot.timer = rand(rng, 1, 3);
-          }
+          // 근처(8~30m) 아무 곳이나 골라 실제 길로 걸어감
+          bot.target = pickWanderTarget(bot, ctx, rng);
+          bot.path = bot.target && ctx.nav ? findPath(ctx.nav, m.x, m.y, bot.target[0], bot.target[1]) : null;
+          if (!bot.path) {
+            bot.target = null;
+            bot.timer = rand(rng, 0.5, 1.5);
+          } else bot.walk = rng() < 0.25;
         }
       } else {
-        const s = seek(bot, bot.target[0], bot.target[1]);
+        const s = followPath(bot);
         wx = s.wx;
         wy = s.wy;
         speed = bot.walk ? walk : run;
         // 어딘가 걸려서 못 가면 포기
         bot.stuckT = horizSpeed(m) < 0.3 && (s.wx !== 0 || s.wy !== 0) ? (bot.stuckT || 0) + dt : 0;
-        if (bot.stuckT > 0.8) {
+        if (bot.stuckT > 0.8 || s.done) {
           bot.stuckT = 0;
-          s.wx = 0;
-          s.wy = 0;
           wx = 0;
           wy = 0;
-        }
-        if (s.wx === 0 && s.wy === 0) {
           bot.target = null;
+          bot.path = null;
           bot.timer = rand(rng, 0.8, 3.5); // 도착하면 각 잡고 기다림
           bot.crouchWanted = rng() < 0.12;
         }

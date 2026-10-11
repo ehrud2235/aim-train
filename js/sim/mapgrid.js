@@ -1,165 +1,99 @@
-// 맵 데이터(사각형들) → 0.25m 격자 높이맵.
+// 실제 바인드 격자(maps/bind.grid.gz, tools/build-bind.mjs 가 만듦) → 맵 객체.
 // 충돌, 총알 판정, 화면 그리기, 미니맵이 모두 이 격자 하나를 쓴다.
+//  top  : 그 칸에서 아래부터 막혀 있는 높이(m) — 바닥 윗면, 상자 윗면, 벽 꼭대기
+//  ceil : 그 칸에서 위쪽이 막히기 시작하는 높이(m) — 창문·문 윗벽 (없으면 Infinity)
+//  floor: 그 칸의 바닥 높이 (상자 밑 바닥 포함)
 
-export const CELL = 0.25;
 export const K = { WALL: 0, FLOOR: 1, STAIRS: 2, PROP: 3, RAIL: 4, DOOR: 5 };
 
-const STEP_RISE = 0.3;
-
-export function buildMap(def) {
-  const [bx0, by0, bx1, by1] = def.bounds;
-  const nx = Math.round((bx1 - bx0) / CELL);
-  const ny = Math.round((by1 - by0) / CELL);
-  const N = nx * ny;
-  const wallH = def.wallHeight;
-  const top = new Float32Array(N).fill(wallH);
-  const floor = new Float32Array(N).fill(wallH);
-  const kind = new Uint8Array(N); // WALL
-  const region = new Uint8Array(N); // 0 = 없음
-  const propId = new Int16Array(N).fill(-1);
-
-  const regionKeys = Object.keys(def.regions);
-  const regions = regionKeys.map((key, i) => ({ key, index: i + 1, ...def.regions[key] }));
-  const regionIndex = Object.fromEntries(regions.map((r) => [r.key, r.index]));
-
-  /** 사각형 안에 중심이 들어오는 칸마다 fn(idx, cx, cy) */
-  function eachCell(r, fn) {
-    const [x0, y0, x1, y1] = r;
-    const i0 = Math.max(0, Math.ceil((x0 - bx0) / CELL - 0.5 - 1e-6));
-    const i1 = Math.min(nx - 1, Math.floor((x1 - bx0) / CELL - 0.5 - 1e-6));
-    const j0 = Math.max(0, Math.ceil((y0 - by0) / CELL - 0.5 - 1e-6));
-    const j1 = Math.min(ny - 1, Math.floor((y1 - by0) / CELL - 0.5 - 1e-6));
-    for (let j = j0; j <= j1; j++) {
-      for (let i = i0; i <= i1; i++) {
-        fn(j * nx + i, bx0 + (i + 0.5) * CELL, by0 + (j + 0.5) * CELL);
-      }
+/** 압축을 푼 격자 바이트 → 배열들 */
+export function parseGrid(bytes) {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const magic = String.fromCharCode(u8[0], u8[1], u8[2], u8[3]);
+  if (magic !== 'VAIM') throw new Error('맵 파일 형식이 아님');
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  const hl = dv.getUint32(4, true);
+  const header = JSON.parse(new TextDecoder().decode(u8.subarray(8, 8 + hl)));
+  let off = 8 + hl;
+  if (off % 2) off++;
+  const N = header.nx * header.ny;
+  const i16 = (o) => {
+    const out = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      const v = dv.getInt16(o + k * 2, true);
+      out[k] = v === header.none ? Infinity : v / 100;
     }
-  }
+    return out;
+  };
+  const top = i16(off);
+  off += N * 2;
+  const floor = i16(off);
+  off += N * 2;
+  const ceil = i16(off);
+  off += N * 2;
+  const kind = u8.slice(off, off + N);
+  off += N;
+  const region = u8.slice(off, off + N);
+  off += N;
+  const prop = u8.slice(off, off + N);
+  return { header, top, floor, ceil, kind, region, prop };
+}
 
-  for (const a of def.areas) {
-    const h = a.h || 0;
-    const reg = regionIndex[a.region] || 0;
-    eachCell(a.r, (idx) => {
-      top[idx] = h;
-      floor[idx] = h;
-      kind[idx] = K.FLOOR;
-      region[idx] = reg;
-    });
-  }
-
-  for (const s of def.stairs || []) {
-    const [x0, y0, x1, y1] = s.r;
-    const rise = s.to - s.from;
-    const n = Math.max(1, Math.ceil(Math.abs(rise) / STEP_RISE) - 1); // 계단 칸 수
-    eachCell(s.r, (idx, cx, cy) => {
-      let f; // 낮은 쪽 0 → 높은 쪽 1
-      if (s.dir === 'n') f = (cy - y0) / (y1 - y0);
-      else if (s.dir === 's') f = (y1 - cy) / (y1 - y0);
-      else if (s.dir === 'e') f = (cx - x0) / (x1 - x0);
-      else f = (x1 - cx) / (x1 - x0);
-      const k = Math.min(n - 1, Math.floor(f * n));
-      const h = s.from + (rise * (k + 1)) / (n + 1);
-      top[idx] = h;
-      floor[idx] = h;
-      kind[idx] = K.STAIRS;
-    });
-  }
-
-  for (const s of def.solids || []) {
-    eachCell(s.r, (idx) => {
-      top[idx] = wallH;
-      floor[idx] = wallH;
-      kind[idx] = K.WALL;
-      region[idx] = 0;
-    });
-  }
-
-  const props = (def.props || []).map((p, i) => ({ ...p, id: i, kind: p.kind || 'crate' }));
-  for (const p of props) {
-    let base = Infinity;
-    eachCell(p.r, (idx) => {
-      if (kind[idx] !== K.WALL) base = Math.min(base, floor[idx]);
-    });
-    if (!Number.isFinite(base)) base = 0;
-    p.base = base;
-    p.top = base + p.h;
-    eachCell(p.r, (idx) => {
-      if (kind[idx] === K.WALL) return;
-      top[idx] = p.top;
-      kind[idx] = K.PROP;
-      propId[idx] = p.id;
-    });
-  }
-
-  for (const r of def.rails || []) {
-    eachCell(r.r, (idx) => {
-      if (kind[idx] === K.WALL) return;
-      top[idx] = floor[idx] + r.h;
-      kind[idx] = K.RAIL;
-    });
-  }
-
-  const doors = (def.doors || []).map((d) => {
-    const cells = [];
-    eachCell(d.r, (idx) => {
-      cells.push(idx);
-      top[idx] = wallH;
-      floor[idx] = 0;
-      kind[idx] = K.DOOR;
-    });
-    return { ...d, cells, open: false, amount: 0 };
-  });
-
-  const overhead = [];
-  for (const rf of def.roofs || []) {
-    const [x0, y0, x1, y1] = rf.r;
-    overhead.push({ x0, y0, x1, y1, z0: rf.y, z1: rf.y + 0.35, type: 'roof' });
-  }
-  for (const l of def.lintels || []) {
-    const [x0, y0, x1, y1] = l.r;
-    overhead.push({ x0, y0, x1, y1, z0: l.y0, z1: l.y1, type: 'lintel' });
-  }
+export function buildMap(grid, def) {
+  const { header, top, floor, ceil, kind, region, prop } = grid;
+  const { nx, ny, cell, x0, y0 } = header;
+  const N = nx * ny;
+  let maxTop = -Infinity;
+  for (let k = 0; k < N; k++) if (top[k] > maxTop && Number.isFinite(top[k])) maxTop = top[k];
+  const regions = header.callouts.map((c, i) => ({ ...c, index: i + 1 }));
+  const regionIndex = Object.fromEntries(regions.map((r) => [r.key, r.index]));
 
   const map = {
     def,
-    name: def.name,
-    cell: CELL,
-    x0: bx0,
-    y0: by0,
-    x1: bx1,
-    y1: by1,
+    name: header.map,
+    cell,
+    x0,
+    y0,
+    x1: x0 + nx * cell,
+    y1: y0 + ny * cell,
     nx,
     ny,
-    wallH,
+    wallH: maxTop,
     top,
     floor,
+    ceil,
     kind,
     region,
-    propId,
-    props,
+    prop,
+    propNames: header.props,
     regions,
     regionIndex,
-    doors,
-    overhead,
-    teleporters: def.teleporters || [],
+    doors: [],
+    overhead: [],
+    teleporters: header.teleporters,
 
     idx(x, y) {
-      const i = Math.floor((x - bx0) / CELL);
-      const j = Math.floor((y - by0) / CELL);
+      const i = Math.floor((x - x0) / cell);
+      const j = Math.floor((y - y0) / cell);
       if (i < 0 || j < 0 || i >= nx || j >= ny) return -1;
       return j * nx + i;
     },
     topAt(x, y) {
       const k = this.idx(x, y);
-      return k < 0 ? wallH : top[k];
+      return k < 0 ? maxTop : top[k];
     },
     floorAt(x, y) {
       const k = this.idx(x, y);
-      return k < 0 ? wallH : floor[k];
+      if (k < 0) return maxTop;
+      return kind[k] === K.FLOOR || kind[k] === K.STAIRS ? top[k] : Number.isFinite(floor[k]) ? floor[k] : top[k];
+    },
+    ceilAt(x, y) {
+      const k = this.idx(x, y);
+      return k < 0 ? -Infinity : ceil[k];
     },
     walkable(x, y) {
       const k = this.idx(x, y);
-      return k >= 0 && kind[k] !== K.WALL && kind[k] !== K.DOOR;
+      return k >= 0 && (kind[k] === K.FLOOR || kind[k] === K.STAIRS);
     },
     regionAt(x, y) {
       const k = this.idx(x, y);
@@ -167,13 +101,7 @@ export function buildMap(def) {
       const r = region[k];
       return r ? regions[r - 1] : null;
     },
-    setDoor(door, open) {
-      if (door.open === open) return;
-      door.open = open;
-      for (const idx of door.cells) {
-        top[idx] = open ? 0 : wallH;
-      }
-    },
+    setDoor() {},
     raycast(ox, oy, oz, dx, dy, dz, maxDist) {
       return raycastMap(this, ox, oy, oz, dx, dy, dz, maxDist);
     },
@@ -183,22 +111,10 @@ export function buildMap(def) {
 
 /**
  * 총알·시야 판정: 높이맵 격자를 따라가며(DDA) 처음 막히는 곳.
- * 반환 { t, nx, ny, nz } 또는 null (하늘로 빠짐). n 은 맞은 면의 바깥 방향.
+ * 칸마다 [top, ceil) 사이만 비어 있다. 반환 { t, nx, ny, nz } 또는 null (하늘로 빠짐).
  */
 export function raycastMap(map, ox, oy, oz, dx, dy, dz, maxDist) {
-  let best = null;
-  // 천장·문틀 상자
-  for (const b of map.overhead) {
-    const hit = rayBox(ox, oy, oz, dx, dy, dz, b.x0, b.y0, b.z0, b.x1, b.y1, b.z1);
-    if (hit && hit.t <= maxDist && (!best || hit.t < best.t)) best = hit;
-  }
-  const limit = best ? best.t : maxDist;
-  const g = gridRay(map, ox, oy, oz, dx, dy, dz, limit);
-  return g || best;
-}
-
-function gridRay(map, ox, oy, oz, dx, dy, dz, maxDist) {
-  const { cell, nx, ny, top, wallH } = map;
+  const { cell, nx, ny, top, ceil, wallH } = map;
   let i = Math.floor((ox - map.x0) / cell);
   let j = Math.floor((oy - map.y0) / cell);
   if (i < 0 || j < 0 || i >= nx || j >= ny) return null;
@@ -212,26 +128,25 @@ function gridRay(map, ox, oy, oz, dx, dy, dz, maxDist) {
   let tMaxJ = dy !== 0 ? (nextY - oy) / dy : Infinity;
   let tEnter = 0;
   let lastAxis = -1;
-  // 처음 칸 안(벽 속)에서 시작하면 그 칸은 무시
   let first = true;
   while (tEnter <= maxDist) {
-    const T = top[j * nx + i];
+    const k = j * nx + i;
+    const T = top[k];
+    const C = ceil[k];
     const tExit = Math.min(tMaxI, tMaxJ, maxDist);
     const zEnter = oz + dz * tEnter;
     const zExit = oz + dz * tExit;
-    if (!first || zEnter >= T) {
-      if (zEnter < T && !first) {
-        // 옆면에 맞음
-        if (lastAxis === 0) return { t: tEnter, nx: -stepI, ny: 0, nz: 0 };
-        return { t: tEnter, nx: 0, ny: -stepJ, nz: 0 };
-      }
-      if (zExit < T && dz < 0) {
-        const t = (T - oz) / dz;
-        return { t: Math.max(t, tEnter), nx: 0, ny: 0, nz: 1 };
-      }
+    if (!first && (zEnter < T || zEnter > C)) {
+      // 옆면에 맞음 (아래 벽이든 위 벽이든)
+      if (lastAxis === 0) return { t: tEnter, nx: -stepI, ny: 0, nz: 0 };
+      return { t: tEnter, nx: 0, ny: -stepJ, nz: 0 };
+    }
+    if (!first || (zEnter >= T && zEnter <= C)) {
+      if (dz < 0 && zExit < T) return { t: Math.max((T - oz) / dz, tEnter), nx: 0, ny: 0, nz: 1 };
+      if (dz > 0 && zExit > C) return { t: Math.max((C - oz) / dz, tEnter), nx: 0, ny: 0, nz: -1 };
     }
     first = false;
-    if (dz > 0 && zEnter > wallH + 0.01) return null; // 벽보다 높이 올라감 → 하늘
+    if (dz >= 0 && zEnter > wallH + 0.01) return null; // 모든 벽보다 높이 → 하늘
     if (tMaxI < tMaxJ) {
       tEnter = tMaxI;
       tMaxI += tDeltaI;

@@ -11,7 +11,7 @@ const zlib = require('zlib');
 
 const ROOT = __dirname;
 const ALLOWED_FILES = new Set(['/index.html', '/style.css']);
-const ALLOWED_DIRS = ['/js/', '/vendor/'];
+const ALLOWED_DIRS = ['/js/', '/vendor/', '/maps/'];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -21,6 +21,7 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.json': 'application/json; charset=utf-8',
+  '.gz': 'application/gzip',
 };
 const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.json']);
 const gzCache = new Map();

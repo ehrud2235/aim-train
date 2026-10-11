@@ -35,7 +35,7 @@ export const MOVE = {
   airAccel: 6, // 공중 방향 전환 (약간의 에어 스트레이프) [추정]
   gravity: 13.5, // [추정]
   jumpVel: 5.0, // 점프 높이 약 0.93 m, 체공 약 0.74 초 [추정]
-  stepHeight: 0.55, // 자동으로 올라가는 턱 높이 [추정]
+  stepHeight: 0.45, // 자동으로 올라가는 턱 높이 — 내비메시 walkableClimb 35cm + 지형 데이터 오차 여유 [추정]
   radius: 0.34, // 몸 반지름 [추정]
   eyeStand: 1.6, // 서 있을 때 눈 높이 [추정]
   eyeCrouch: 1.12, // 앉았을 때 눈 높이 [추정]
