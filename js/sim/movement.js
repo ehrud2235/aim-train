@@ -19,7 +19,8 @@ export function createMover(x, y, z = 0) {
     vz: 0,
     onGround: true,
     crouch: 0, // 0 = 서 있음, 1 = 완전히 앉음
-    landSlow: 0,
+    landErr: 0, // 착지 직후 사격 오차 남은 시간
+    tag: 0, // 맞아서 느려진 정도 (1 → 0)
     airTime: 0,
     jumpHeld: false,
     stepSmooth: 0, // 계단 오를 때 화면이 튀지 않게
@@ -71,9 +72,11 @@ export function stepMover(m, map, input, dt) {
     wy /= wl;
   }
   let speed = input.speed;
-  if (m.landSlow > 0) {
-    m.landSlow -= dt;
-    speed *= MOVE.landSlowMult;
+  if (m.landErr > 0) m.landErr = Math.max(0, m.landErr - dt);
+  // 태깅: 총에 맞으면 72.5% 느려졌다가 0.4초 동안 돌아옴
+  if (m.tag > 0) {
+    speed *= 1 - MOVE.tagSlow * m.tag;
+    m.tag = Math.max(0, m.tag - dt / MOVE.tagTime);
   }
 
   if (m.onGround) {
@@ -127,7 +130,7 @@ export function stepMover(m, map, input, dt) {
       if (!wasGround) {
         ev.landed = true;
         ev.landSpeed = -m.vz;
-        if (m.vz < -3) m.landSlow = MOVE.landSlowTime;
+        m.landErr = MOVE.landErrorTime;
       }
       m.z = ground;
       m.vz = 0;
@@ -142,12 +145,17 @@ export function stepMover(m, map, input, dt) {
   return ev;
 }
 
-/** 지상 가속/감속. 반대 방향 입력이면 더 세게 선다(카운터 스트레이핑). */
+/** 속도 v 를 dt 동안 마찰로 줄인 값 (지수 감속 + 작은 고정 감속) */
+function brakeSpeed(v, dt, extra = 0) {
+  return Math.max(0, v * Math.exp(-MOVE.friction * dt) - (MOVE.stopDecel + extra) * dt);
+}
+
+/** 지상 가속/감속. 반대 방향 입력(카운터 스트레이핑)은 조금만 더 빨리 선다 (발로는 키를 놓는 것과 약 10ms 차이). */
 function groundAccel(m, wx, wy, hasInput, speed, dt) {
   if (!hasInput) {
     const v = Math.hypot(m.vx, m.vy);
     if (v > 0) {
-      const nv = Math.max(0, v - MOVE.brake * dt);
+      const nv = brakeSpeed(v, dt);
       m.vx *= nv / v;
       m.vy *= nv / v;
     }
@@ -159,18 +167,17 @@ function groundAccel(m, wx, wy, hasInput, speed, dt) {
   let qy = m.vy - p * wy;
   const q = Math.hypot(qx, qy);
   if (q > 0) {
-    const nq = Math.max(0, q - (MOVE.brake + MOVE.counterBrake) * dt);
+    const nq = brakeSpeed(q, dt, MOVE.counterBrake);
     qx *= nq / q;
     qy *= nq / q;
   }
   if (p < 0) {
-    // 반대로 움직이는 중 → 감속 + 반대 키 가속
-    p += (MOVE.brake + MOVE.counterBrake) * dt;
-    if (p > 0) p = Math.min(p, speed);
+    // 반대로 움직이는 중 → 감속 (반대 키가 조금 더 세움). 멈추면 그때부터 새 방향으로 가속
+    p = -brakeSpeed(-p, dt, MOVE.counterBrake);
   } else if (p < speed) {
     p = Math.min(speed, p + MOVE.accel * dt);
   } else if (p > speed) {
-    p = Math.max(speed, p - MOVE.brake * dt); // 걷기로 바꾸면 감속
+    p = Math.max(speed, brakeSpeed(p, dt)); // 걷기·조준·태깅으로 최고 속도가 줄면 감속
   }
   m.vx = wx * p + qx;
   m.vy = wy * p + qy;

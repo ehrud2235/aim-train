@@ -8,6 +8,7 @@ import { findPath } from '../js/sim/nav.js';
 import { segmentWalkable, lineOfSight } from '../js/sim/bots.js';
 import { DEFAULTS } from '../js/sim/settings.js';
 import { loadBind, freshBind, seeded, near } from './helpers.mjs';
+const BASE = { ...DEFAULTS, fight: 'off', matchRules: 'endless', dmBots: 8 };
 
 const map = loadBind();
 const at = (key) => map.regions.find((r) => r.key === key).at;
@@ -60,7 +61,7 @@ test('공격 스폰에서 모든 위치까지 걸어서 갈 수 있다 (계단 3
 });
 
 test('텔레포터: A 숏 → B 출구, B 텔레포터 → A 출구 (보던 방향 유지)', () => {
-  const g = createGame(freshBind(), { ...DEFAULTS, mode: 'free' }, seeded(3));
+  const g = createGame(freshBind(), { ...BASE, mode: 'free' }, seeded(3));
   const m = g.player.mover;
   for (const [id, exitKey] of [['A', 'bExit'], ['B', 'aExit']]) {
     const t = g.map.teleporters.find((x) => x.id === id);
@@ -101,7 +102,7 @@ test('총알: 바닥·벽에 맞고, 맵 밖으로 새지 않는다', () => {
 });
 
 test('각 잡기: 자리마다 실제 지형의 모서리 2개 이상, 숨는 곳은 안 보이고 튀어나오는 곳은 보인다', () => {
-  const g = createGame(map, { ...DEFAULTS, mode: 'free' }, seeded(1));
+  const g = createGame(map, { ...BASE, mode: 'free' }, seeded(1));
   for (const h of BIND.holds) {
     const { at: spot, lanes } = holdSetup(g, h);
     assert.ok(map.walkable(...spot), `${h.id} 자리`);
@@ -120,7 +121,7 @@ test('각 잡기: 자리마다 실제 지형의 모서리 2개 이상, 숨는 �
 test('각 잡기: 봇이 계속 숨었다 나왔다 한다 (걸리거나 계속 보이는 채로 멈추지 않음)', () => {
   for (const h of BIND.holds) {
     for (let seed = 1; seed <= 3; seed++) {
-      const g = createGame(map, { ...DEFAULTS, mode: 'hold', hold: h.id }, seeded(seed * 97 + 5));
+      const g = createGame(map, { ...BASE, mode: 'hold', hold: h.id }, seeded(seed * 97 + 5));
       const T = 128 * 100;
       let vis = 0;
       let run = 0;
@@ -155,7 +156,7 @@ test('각 잡기: 봇이 계속 숨었다 나왔다 한다 (걸리거나 계속 
 
 test('1:1: 자리마다 봇이 보이는 곳에서 좌우로 움직인다', () => {
   for (const d of BIND.duels) {
-    const g = createGame(map, { ...DEFAULTS, mode: 'duel', duel: d.id }, seeded(4));
+    const g = createGame(map, { ...BASE, mode: 'duel', duel: d.id }, seeded(4));
     const s = duelSetup(g, d);
     assert.ok(map.walkable(...s.bot), `${d.id} 봇 자리`);
     let seen = 0;
@@ -169,7 +170,7 @@ test('1:1: 자리마다 봇이 보이는 곳에서 좌우로 움직인다', () =
 });
 
 test('데스매치: 봇이 바인드 곳곳에 나오고 실제 길로 돌아다닌다', () => {
-  const g = createGame(map, { ...DEFAULTS, mode: 'dm', dmBots: 8, dmBehavior: 'wander' }, seeded(2));
+  const g = createGame(map, { ...BASE, mode: 'dm', dmBots: 8, dmBehavior: 'wander' }, seeded(2));
   assert.equal(g.bots.length, 8);
   const start = g.bots.map((b) => [b.mover.x, b.mover.y]);
   const regions = new Set();
@@ -188,8 +189,8 @@ test('데스매치: 봇이 바인드 곳곳에 나오고 실제 길로 돌아다
   assert.ok(regions.size >= 6, `봇이 다닌 위치 ${regions.size}곳`);
 });
 
-test('반격 켜면 봇이 쏘고, 죽으면 2초 뒤 다시 시작', () => {
-  const g = createGame(map, { ...DEFAULTS, mode: 'duel', duel: 'bLong25', fight: 'hard' }, seeded(7));
+test('반격 켜면 봇이 쏘고, 죽으면 1.5초 뒤 체력 100 · 방어구 50 으로 다시 시작', () => {
+  const g = createGame(map, { ...BASE, mode: 'duel', duel: 'bLong25', fight: 'hard' }, seeded(7));
   let died = false;
   for (let i = 0; i < 128 * 30 && !died; i++) {
     g.step();
@@ -197,6 +198,6 @@ test('반격 켜면 봇이 쏘고, 죽으면 2초 뒤 다시 시작', () => {
     g.events.length = 0;
   }
   assert.ok(died);
-  for (let i = 0; i < 128 * 2.2; i++) g.step();
-  assert.ok(g.player.alive && g.player.hp === 150);
+  for (let i = 0; i < 128 * 1.6; i++) g.step();
+  assert.ok(g.player.alive && g.player.hp === 100 && g.player.armor === 50);
 });

@@ -2,7 +2,7 @@
 // 봇도 플레이어와 같은 이동 계산(가속·감속)을 써서 발로란트에서 보는 적 움직임과 같은 속도로 움직인다.
 
 import { createMover, stepMover, horizSpeed, groundHeight } from './movement.js';
-import { VANDAL, MOVE, HITBOX, HP_FULL } from './valorant.js';
+import { VANDAL, MOVE, HITBOX, HP_MAX, ARMOR_HEAVY } from './valorant.js';
 import { rayBox } from './mapgrid.js';
 import { findPath, navNodes, nodePos } from './nav.js';
 
@@ -20,7 +20,8 @@ export function createBot(map, x, y, opts = {}) {
     id: nextId++,
     mover: createMover(x, y, z),
     face: opts.face ?? 0, // 바라보는 방향 (나침반 도)
-    hp: HP_FULL,
+    hp: HP_MAX,
+    armor: ARMOR_HEAVY,
     alive: true,
     deadFor: 0,
     behavior: opts.behavior || 'static',
@@ -114,7 +115,8 @@ export function respawnBot(bot, map, x, y, face) {
   const z = map.floorAt(x, y);
   bot.mover = createMover(x, y, z);
   bot.face = face ?? bot.face;
-  bot.hp = HP_FULL;
+  bot.hp = HP_MAX;
+  bot.armor = ARMOR_HEAVY;
   bot.alive = true;
   bot.deadFor = 0;
   bot.dir = 0;
@@ -138,7 +140,7 @@ function seek(bot, tx, ty) {
   const dy = ty - m.y;
   const d = Math.hypot(dx, dy);
   const v = horizSpeed(m);
-  const stopDist = (v * v) / (2 * MOVE.brake) + 0.05;
+  const stopDist = v / MOVE.friction + 0.05; // 지수 감속으로 서는 거리
   if (d <= stopDist || d < 0.12) return { wx: 0, wy: 0, arrived: d < 0.35 && v < 0.6 };
   return { wx: dx / d, wy: dy / d, arrived: false };
 }

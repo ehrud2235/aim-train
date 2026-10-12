@@ -16,10 +16,9 @@ export function cmPer360(dpi, sens) {
   return (counts / dpi) * 2.54;
 }
 
-/** 줌 배율 z 일 때의 가로 시야각 (초점거리 기준) */
+/** 줌 배율 z 일 때의 가로 시야각 — 발로는 각도를 그대로 나눈다 (밴달 1.25배 → 82.4°) [추정: FOV 계산기·커뮤니티 목록] */
 export function zoomedHfov(zoom) {
-  const t = Math.tan((HFOV / 2) * (Math.PI / 180)) / zoom;
-  return (2 * Math.atan(t) * 180) / Math.PI;
+  return HFOV / zoom;
 }
 
 /** 이동 */
@@ -30,8 +29,11 @@ export const MOVE = {
   // 이 속도(무기 최대 속도 대비) 이하이면 이동 오차 0 = 완전 정확 [확인: 패치 3.0 에서 30% → 27.5%]
   accurateFrac: 0.275,
   accel: 32, // 입력 방향 가속 m/s² — 0→5.4 m/s 약 0.17초 [추정]
-  brake: 52, // 키를 놓았을 때 감속 m/s² — 5.4→0 약 0.1초 [추정]
-  counterBrake: 20, // 반대키(카운터 스트레이핑)로 더 빨리 서는 추가 감속 — 발로는 차이가 작다 [추정]
+  // 감속: 속도에 비례하는 마찰(지수 감속) + 작은 고정 감속. 달리다 키를 놓으면 걷기 속도까지 약 0.075초,
+  // 정확 사격 속도(27.5%)까지 약 0.16초 [확인: 라이엇 개발자 수치(팬텀) 0.065 / 0.17초]
+  friction: 7.5, // 1/s
+  stopDecel: 1.5, // m/s²
+  counterBrake: 2.5, // 반대키(카운터 스트레이핑)로 더 서는 양 — 발로는 약 10ms 차이뿐 [확인: 0.055 / 0.16초]
   airAccel: 6, // 공중 방향 전환 (약간의 에어 스트레이프) [추정]
   gravity: 13.5, // [추정]
   jumpVel: 5.0, // 점프 높이 약 0.93 m, 체공 약 0.74 초 [추정]
@@ -40,8 +42,10 @@ export const MOVE = {
   eyeStand: 1.6, // 서 있을 때 눈 높이 [추정]
   eyeCrouch: 1.12, // 앉았을 때 눈 높이 [추정]
   crouchTime: 0.12, // 앉기/일어서기 시간 [추정]
-  landSlowTime: 0.1, // 착지 직후 잠깐 느려짐 [추정]
-  landSlowMult: 0.6,
+  landErrorTime: 0.225, // 착지 직후 이 시간 동안 오차 +7° [확인: 패치 1.09]
+  landError: 7.0,
+  tagSlow: 0.725, // 맞으면 72.5% 느려짐 [확인: 패치 3.0]
+  tagTime: 0.4, // 원래 속도로 돌아오는 시간 [추정: 0.3~0.5초]
 };
 
 /** 밴달 */
@@ -58,50 +62,77 @@ export const VANDAL = {
   adsSpeedMult: 0.76, // 조준 중 이동 4.104 m/s [확인]
   zoom: 1.25, // 조준 배율 [확인]
   adsTime: 0.16, // 조준 전환 시간 [추정]
-  // 첫 발 퍼짐(원뿔 반각, °): 지향사격 0.25, 조준 0.157 [확인]
+  // 사격 오차(원뿔 반각, °): 첫 발 0.25 → 연사하면 최대 1.0. 조준 0.1575 → 1.02 [확인: valorant-api · 위키 표]
   firstShotSpread: 0.25,
-  adsFirstShotSpread: 0.157,
-  // 이동 오차 (°) — 속도에 따라 0 → 걷기 → 달리기 값으로 커진다 [추정]
-  walkError: 2.6,
+  maxSpread: 1.0,
+  adsFirstShotSpread: 0.1575,
+  adsMaxSpread: 1.02,
+  spreadFullAt: 7, // 이 발수쯤에서 최대 [추정: 7~8발]
+  crouchMult: 0.85, // 앉으면 ×0.85 (0.21 / 0.85) [확인]
+  // 이동 오차 (°, 사격 오차에 더함) [확인: 패치 9.10 — 소총 걷기 3, 달리기 6, 공중 10, 앉아 이동 0.8]
+  walkError: 3.0,
   runError: 6.0,
-  jumpError: 11.0,
-  crouchMult: 0.85, // 앉으면 퍼짐 ×0.85 [추정]
-  adsErrorMult: 0.7, // 조준 시 연사 퍼짐 배율 [추정]
-  // 연사 퍼짐: 3발째부터 한 발마다 늘어남 [추정]
-  sprayErrorStart: 3,
-  sprayErrorPerShot: 0.2,
-  sprayErrorMax: 2.0,
-  // 반동 회복: 마지막 발 이후 이 시간이 지나면 회복 시작, 초당 회복되는 '발 수' [추정]
-  recoverDelay: 0.11,
-  recoverRate: 16,
-  recoverRateScale: 4.5, // 많이 쏠수록 빨리 돌아옴 (발수 × 이 값 /초)
-  viewKick: 0.3, // 반동 중 화면(크로스헤어)이 같이 올라가는 비율 — 나머지는 탄이 크로스헤어 위로 튄다 [추정]
+  jumpError: 10.0,
+  crouchMoveError: 0.8,
+  // 반동 회복: 마지막 발 뒤 0.375초 동안 첫 발 상태로 돌아옴. 회복 중에 다시 쏘면 1/6 발만큼만 쌓임 [확인: 패치 0.50 Recovery 0.375, Tap Efficiency 6]
+  recoveryTime: 0.375,
+  tapEfficiency: 6,
+  // 스프레이: 1~6발은 위로만, 그 뒤 좌우 [확인: 패치 11.08 보호 탄 6발, 전환 확률 10%, 좌우 전환 0.6초]
+  protectedBullets: 6,
+  yawSwitchChance: 0.1,
+  yawSwitchTime: 0.6,
+  viewKick: 0.5, // 지향사격: 화면(크로스헤어)이 반동의 약 50% 를 따라감 [추정: 프레임 측정]
+  adsViewKick: 1.0, // 조준: 크로스헤어가 반동을 그대로 따라감 [확인: 위키 'Crosshair follows recoil']
+  shotPunch: 0.85, // 발마다 화면이 살짝 튀었다가(25ms) 다음 발 전에 돌아옴 [추정]
   adsRecoilMult: 0.9, // [추정]
+  runRecoilMult: 1.8, // 달리면서 쏘면 세로 반동 ×1.8 [확인: 패치 6.11]
+  crouchYawMult: 0.85, // 앉아서 멈춰 쏘면 좌우 반동 -15% [확인: 패치 0.50]
   penetration: 'medium', // 벽 관통: 중간 [확인]
 };
 
 /**
- * 밴달 스프레이 패턴 — n 번째 발의 반동 (°): [위, 오른쪽+]
- * 처음 몇 발은 거의 직선으로 오르고, 10발 근처부터 좌우로 흔들린다. [추정: 연습장 탄착 모양을 흉내]
+ * 밴달 세로 반동 (°): n(0부터, 소수 가능)번째 발. 8발째까지 거의 직선으로 7.85° 오르고 8.5~9° 에서 멈춘다.
+ * [추정: 영상 프레임 측정 — 라이엇은 크기를 공개하지 않음]
  */
-const VANDAL_PATTERN = [
-  [0, 0], [0.32, 0.0], [0.78, 0.02], [1.38, -0.03], [2.05, 0.05], [2.72, -0.06], [3.35, 0.08], [3.9, 0.0],
-  [4.38, -0.18], [4.78, -0.45], [5.08, -0.8], [5.3, -1.12], [5.46, -1.3], [5.58, -1.2], [5.68, -0.85],
-  [5.76, -0.3], [5.82, 0.3], [5.88, 0.85], [5.93, 1.25], [5.98, 1.4], [6.02, 1.15], [6.06, 0.6],
-  [6.1, -0.05], [6.13, -0.7], [6.16, -1.15],
-];
+export function vandalPitch(n) {
+  if (n <= 0) return 0;
+  if (n <= 7) return (7.85 * n) / 7;
+  return 7.85 + (8.9 - 7.85) * (1 - Math.exp(-(n - 7) / 2.2));
+}
 
-/** n(0부터)번째 발 반동. 좌우 흔들림 방향은 스프레이마다 무작위(side=±1) */
-export function vandalRecoil(n, side = 1) {
-  const p = VANDAL_PATTERN[Math.min(n, VANDAL_PATTERN.length - 1)];
-  return [p[0], p[1] * side];
+/** 좌우 반동이 커질 수 있는 최대 폭 (°): 보호 탄 이후 늘어나 12발쯤 ±2.4°, 최대 ±2.8° [추정] */
+export function vandalYawAmp(n) {
+  const p = VANDAL.protectedBullets;
+  if (n < p) return 0;
+  return Math.min(2.8, 0.4 * (n - p + 1));
 }
 
 /** 칼 */
 export const KNIFE = { name: 'Knife', speed: 6.75, equipTime: 0.75 };
 
-/** 체력: 100 + 중방어구 50 = 150. 방어구가 먼저 다 깎인다. [확인] 밴달 몸 4발, 머리 1발 */
-export const HP_FULL = 150;
+/** 체력 100 + 중방어구 50. 방어구가 먼저 깎인다. [확인] 밴달 몸 4발, 머리 1발 */
+export const HP_MAX = 100;
+export const ARMOR_HEAVY = 50;
+export const HP_FULL = HP_MAX + ARMOR_HEAVY;
+/** 방어구는 맞을 때마다 피해의 66% 를 대신 받는다 (다 닳을 때까지) [확인: 패치 9.10] — 밴달 몸 4발, 다리 5발은 그대로 */
+export const ARMOR_ABSORB = 0.66;
+
+/** 데스매치 규칙 [확인: 라이엇 고객지원] */
+export const DM = {
+  killTarget: 40, // 먼저 40킬
+  timeLimit: 540, // 또는 9:00 이 지나면 킬 많은 사람이 승리
+  respawn: 1.5, // 죽고 1.5초 뒤 부활
+  healthPackLife: 10, // 죽은 자리에 떨어지는 회복팩: 10초 동안, 밟으면 체력·방어구 가득
+  healthPackRadius: 1.0, // [추정]
+  spawnProtect: 8, // 부활 직후 무적: 움직이거나 쏘기 전까지 (최대 8초 [추정: 2020년 자료])
+};
+
+/** 요원 (봇 이름·아이콘). 키 = assets/agents/<키>.webp */
+export const AGENTS = [
+  ['jett', '제트'], ['reyna', '레이나'], ['phoenix', '피닉스'], ['sage', '세이지'], ['sova', '소바'], ['omen', '오멘'],
+  ['brimstone', '브림스톤'], ['raze', '레이즈'], ['killjoy', '킬조이'], ['cypher', '사이퍼'], ['viper', '바이퍼'], ['breach', '브리치'],
+  ['skye', '스카이'], ['yoru', '요루'], ['astra', '아스트라'], ['chamber', '체임버'], ['neon', '네온'], ['fade', '페이드'],
+].map(([key, name]) => ({ key, name }));
 
 /** 몸 판정 박스 (캐릭터 기준, 발바닥이 0) [추정] */
 export const HITBOX = {
@@ -114,5 +145,5 @@ export const HITBOX = {
 /** 크로스헤어 색 (발로 코드 c 번호) [확인] */
 export const CROSSHAIR_COLORS = ['#ffffff', '#00ff00', '#7fff00', '#dfff00', '#ffff00', '#00ffff', '#ff00ff', '#ff0000'];
 
-/** 적 하이라이트 색 (발로 설정) */
-export const ENEMY_COLORS = { red: '#ff3b3b', yellow: '#f5e33b', purple: '#c24bff' };
+/** 적 하이라이트 색 (발로 설정: 빨강(기본) / 보라(제3색맹) / 노랑(제2색맹) / 노랑(제1색맹)) [추정: 색 값] */
+export const ENEMY_COLORS = { red: '#ff3b3b', purple: '#c24bff', yellowD: '#f5f53a', yellowP: '#ffe13a' };

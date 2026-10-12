@@ -16,14 +16,16 @@ function rgba(hex, a) {
  */
 export function paintCrosshair(g, cx, cy, cfg, fireErrPx = 0, moveErrPx = 0) {
   const rects = [];
+  // '사격 오차에 따라 조준선 흐리게': 연사로 벌어질수록 옅어짐 [추정: 곡선]
+  const fade = cfg.fade ? Math.max(0.25, 1 - fireErrPx / 12) : 1;
   const rect = (x, y, w, h, a) => {
-    rects.push([Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)), a]);
+    rects.push([Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)), a * fade]);
   };
   const lines = (L) => {
     if (!L.show || L.opacity <= 0 || L.length <= 0) return;
     let extra = 0;
-    if (cfg.firingErrorAll && L.fireError) extra += fireErrPx;
-    if (L.moveError) extra += moveErrPx;
+    if (cfg.firingErrorAll && L.fireError) extra += fireErrPx * (L.fireMult ?? 1);
+    if (L.moveError) extra += moveErrPx * (L.moveMult ?? 1);
     const t = L.thickness;
     const len = L.length;
     const vlen = L.vlength ?? len;

@@ -2,7 +2,7 @@
 /**
  * 발로 에임장 — 내 컴퓨터에서 열어 볼 때 쓰는 정적 파일 서버 (설치할 것 없음: node server.js).
  * 인터넷에서는 GitHub Pages 가 같은 파일을 그대로 제공하므로 이 서버가 필요 없다.
- * 화면에 필요한 파일(index.html, style.css, js/, vendor/)만 내보낸다.
+ * 화면에 필요한 파일(index.html, style.css, js/, vendor/, maps/, assets/)만 내보낸다.
  */
 const http = require('http');
 const fs = require('fs');
@@ -11,7 +11,7 @@ const zlib = require('zlib');
 
 const ROOT = __dirname;
 const ALLOWED_FILES = new Set(['/index.html', '/style.css']);
-const ALLOWED_DIRS = ['/js/', '/vendor/', '/maps/'];
+const ALLOWED_DIRS = ['/js/', '/vendor/', '/maps/', '/assets/'];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -22,8 +22,18 @@ const MIME = {
   '.png': 'image/png',
   '.json': 'application/json; charset=utf-8',
   '.gz': 'application/gzip',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.mp3': 'audio/mpeg',
+  '.glb': 'model/gltf-binary',
+  '.bin': 'application/octet-stream',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
 };
-const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.json']);
+const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.svg', '.json', '.wav']);
 const gzCache = new Map();
 
 /** 요청 경로 → 실제 파일 (허용되지 않은 경로면 null) */

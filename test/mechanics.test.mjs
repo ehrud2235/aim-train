@@ -8,6 +8,7 @@ import { createGame, DT, offsetDir, placeBotAtAim } from '../js/sim/game.js';
 import { cmPer360, zoomedHfov, VANDAL, MOVE, YAW_PER_COUNT } from '../js/sim/valorant.js';
 import { DEFAULTS, parseCrosshairCode, loadSettings, DEFAULT_CROSSHAIR } from '../js/sim/settings.js';
 import { flatMap, seeded, near } from './helpers.mjs';
+const BASE = { ...DEFAULTS, fight: 'off', matchRules: 'endless', dmBots: 8 };
 
 const map = flatMap(80, 80);
 // ── 감도 ──
@@ -16,8 +17,8 @@ test('감도 0.4 / 800 DPI → 1카운트 0.028°, 360° 약 40.8cm', () => {
   assert.ok(near(cmPer360(800, 0.4), 40.82, 0.01));
 });
 
-test('밴달 조준 1.25배 → 가로 시야 약 90.3°', () => {
-  assert.ok(near(zoomedHfov(1.25), 90.3, 0.1));
+test('밴달 조준 1.25배 → 가로 시야 103 / 1.25 = 82.4°', () => {
+  assert.ok(near(zoomedHfov(1.25), 82.4, 1e-9));
 });
 
 // ── 이동 ──
@@ -34,7 +35,7 @@ test('밴달 들고 달리면 5.4 m/s, 걷기 약 2.98, 조준 4.104, 칼 6.75',
   assert.ok(near(maxSpeed(6.75, {}), 6.75, 1e-9));
 });
 
-test('키를 놓으면 0.1초 안에 정확 사격 속도(27.5%)까지 떨어지고, 반대키(카운터 스트레이핑)가 조금 더 빠르다', () => {
+test('키를 놓으면 약 0.16초에 정확 사격 속도(27.5%), 걷기 속도까지 약 0.07초 — 반대키(카운터 스트레이핑)는 약 10ms 빠름', () => {
   const thr = VANDAL.speed * MOVE.accurateFrac;
   const timeToAccurate = (counter) => {
     const m = runFlat(128, { wx: 1, wy: 0, speed: 5.4, crouch: false, jump: false }, createMover(12, 40, 0));
@@ -47,8 +48,16 @@ test('키를 놓으면 0.1초 안에 정확 사격 속도(27.5%)까지 떨어지
   };
   const release = timeToAccurate(false);
   const counter = timeToAccurate(true);
-  assert.ok(release < 0.1, `놓기 ${release}`);
-  assert.ok(counter < release, `카운터 ${counter} < 놓기 ${release}`);
+  assert.ok(release > 0.14 && release < 0.19, `놓기 ${release}`);
+  assert.ok(counter < release && release - counter < 0.03, `카운터 ${counter} < 놓기 ${release}`);
+  // 걷기 속도(2.98)까지
+  const m = runFlat(128, { wx: 1, wy: 0, speed: 5.4, crouch: false, jump: false }, createMover(12, 40, 0));
+  let t = 0;
+  while (horizSpeed(m) > VANDAL.speed * MOVE.walkMult) {
+    stepMover(m, map, { wx: 0, wy: 0, speed: 5.4, crouch: false, jump: false }, DT);
+    t += DT;
+  }
+  assert.ok(t > 0.05 && t < 0.09, `걷기 속도까지 ${t}`);
 });
 
 test('점프: 약 0.9~1.1m 뜨고 착지한다', () => {
@@ -98,22 +107,53 @@ test('탄창 25발 → 자동 재장전 2.5초 뒤 다시 25발', () => {
   assert.equal(w.ammo, 25);
 });
 
-test('첫 발은 0.25° (조준 0.157°), 움직이면 오차, 27.5% 이하 속도면 오차 0', () => {
+test('첫 발 0.25° (앉으면 0.21), 연사 최대 1.0°, 걷기 +3 · 달리기 +6 · 공중 +10 · 착지 +7, 27.5% 이하 속도면 이동 오차 0', () => {
   const w = createWeapon();
   assert.ok(near(currentSpread(w, { speed: 0, airborne: false }).total, 0.25, 1e-9));
+  assert.ok(near(currentSpread(w, { speed: 0, airborne: false, crouched: true }).total, 0.2125, 1e-9));
+  w.shotIdx = 20;
+  assert.ok(near(currentSpread(w, { speed: 0, airborne: false }).total, 1.0, 1e-9));
+  w.shotIdx = 0;
+  assert.ok(near(movementError(VANDAL.speed * MOVE.walkMult, false), 3.0, 1e-9));
+  assert.ok(near(movementError(VANDAL.speed * 0.6, false, VANDAL.speed, true), 0.8, 1e-9));
+  assert.ok(near(movementError(0, false, VANDAL.speed, false, true), 7, 1e-9));
   assert.equal(movementError(VANDAL.speed * 0.27, false), 0);
   assert.ok(movementError(VANDAL.speed * 0.6, false) > 1);
   assert.equal(movementError(VANDAL.speed, false), VANDAL.runError);
   assert.equal(movementError(0, true), VANDAL.jumpError);
 });
 
-test('끊어 쏘기(탭)는 반동이 회복되어 매번 첫 발 정확도', () => {
+test('끊어 쏘기: 0.5초 간격이면 매번 첫 발, 0.3초 간격이어도 거의 첫 발 (회복 0.375초, 탭 효율 6)', () => {
+  const still = { speed: 0, airborne: false, crouched: false };
+  const tap = (gap) => {
+    const w = createWeapon();
+    const out = [];
+    for (let k = 0; k < 6; k++) {
+      let fired = false;
+      for (let i = 0; i < 128 * gap; i++) {
+        const r = stepWeapon(w, { fire: !fired, adsHeld: false }, still, DT);
+        if (r.shots.length) {
+          out.push(r.shots[0]);
+          fired = true;
+        }
+      }
+    }
+    return out;
+  };
+  assert.deepEqual(tap(0.5).map((s) => s.index), [0, 0, 0, 0, 0, 0]);
+  for (const s of tap(0.3)) {
+    assert.ok(s.spread < 0.27, `퍼짐 ${s.spread}`);
+    assert.ok(s.recoil[0] < 0.8, `반동 ${s.recoil[0]}`);
+  }
+});
+
+test('끊어 쏘기(탭) 기본: 충분히 쉬면 반동이 회복되어 매번 첫 발 정확도', () => {
   const w = createWeapon();
   const still = { speed: 0, airborne: false, crouched: false };
   const idx = [];
   for (let k = 0; k < 5; k++) {
     let fired = false;
-    for (let i = 0; i < 128 * 0.4; i++) {
+    for (let i = 0; i < 128 * 0.55; i++) {
       const r = stepWeapon(w, { fire: !fired, adsHeld: false }, still, DT);
       if (r.shots.length) {
         idx.push(r.shots[0].index);
@@ -124,16 +164,23 @@ test('끊어 쏘기(탭)는 반동이 회복되어 매번 첫 발 정확도', ()
   assert.deepEqual(idx, [0, 0, 0, 0, 0]);
 });
 
-test('스프레이: 처음엔 위로, 10발 넘어가면 옆으로', () => {
-  const w = createWeapon();
-  const still = { speed: 0, airborne: false, crouched: false };
-  const rec = [];
-  for (let i = 0; i < 128 * 1.5; i++) {
-    for (const s of stepWeapon(w, { fire: true, adsHeld: false }, still, DT, seeded(5)).shots) rec.push(s.recoil);
+test('스프레이: 1~6발은 위로만, 8발째 약 7.85° 뒤 9° 아래에서 멈춤, 그 뒤 좌우로 흔들림', () => {
+  for (let seed = 1; seed <= 6; seed++) {
+    const w = createWeapon();
+    const still = { speed: 0, airborne: false, crouched: false };
+    const rec = [];
+    const rng = seeded(seed);
+    for (let i = 0; i < 128 * 2.6; i++) {
+      for (const s of stepWeapon(w, { fire: true, adsHeld: false }, still, DT, rng).shots) rec.push(s.recoil);
+    }
+    assert.equal(rec.length, 25);
+    assert.equal(rec[0][0], 0);
+    for (let n = 0; n < 6; n++) assert.equal(rec[n][1], 0, `보호 탄 ${n} 좌우 ${rec[n][1]}`);
+    assert.ok(near(rec[7][0], 7.85, 0.01));
+    assert.ok(Math.max(...rec.map((r) => r[0])) < 9.0);
+    assert.ok(Math.max(...rec.map((r) => Math.abs(r[1]))) <= 2.8 + 1e-6);
+    assert.ok(rec.slice(10).some((r) => Math.abs(r[1]) > 0.8), `시드 ${seed}: 좌우 흔들림 없음`);
   }
-  assert.equal(rec[0][0], 0);
-  assert.ok(rec[4][0] > 1.5 && Math.abs(rec[4][1]) < 0.2);
-  assert.ok(rec[12][0] > 5 && Math.abs(rec[12][1]) > 0.8);
 });
 
 test('무기 바꾸면 꺼내는 1초 동안 못 쏜다', () => {
@@ -146,7 +193,7 @@ test('무기 바꾸면 꺼내는 1초 동안 못 쏜다', () => {
 
 // ── 판정 ──
 test('봇 판정: 머리 160 (한 방), 몸 40 × 4발, 다리 34', () => {
-  const g = createGame(map, { ...DEFAULTS, mode: 'free' }, seeded(9));
+  const g = createGame(map, { ...BASE, mode: 'free' }, seeded(9));
   const bot = createBot(map, 40, 50, { face: 180 });
   g.bots.push(bot);
   const m = g.player.mover;
@@ -254,7 +301,7 @@ test('점프하다 높은 칸에 올라서도 위로 가던 속도가 남지 않
 });
 
 test('봇이 "보인다"는 건 화면 안에 있을 때만 (등 뒤는 미니맵·반응 시간에 안 들어감)', () => {
-  const g = createGame(map, { ...DEFAULTS, mode: 'free' }, seeded(2));
+  const g = createGame(map, { ...BASE, mode: 'free' }, seeded(2));
   const b = createBot(map, 40, 52, { face: 180 });
   g.bots.push(b);
   g.player.mover.x = 40;
@@ -270,7 +317,7 @@ test('봇이 "보인다"는 건 화면 안에 있을 때만 (등 뒤는 미니�
 });
 
 test('B 키: 보는 곳에 봇 놓기', () => {
-  const g = createGame(map, { ...DEFAULTS, mode: 'free' }, seeded(2));
+  const g = createGame(map, { ...BASE, mode: 'free' }, seeded(2));
   g.pitch = -5;
   assert.ok(placeBotAtAim(g));
   assert.equal(g.bots.length, 1);

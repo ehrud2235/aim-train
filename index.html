@@ -5,31 +5,73 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>발로 에임장 — 바인드</title>
   <link rel="icon" href="data:,">
+  <link rel="preload" href="assets/fonts/barlow-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">{ "imports": { "three": "./vendor/three/three.module.js" } }</script>
 </head>
 <body>
   <canvas id="view"></canvas>
 
+  <!-- 화면 효과: 조준 가장자리 어둡게, 죽었을 때 흑백 -->
+  <div id="ads-vignette"></div>
+  <div id="death-tint"></div>
+  <canvas id="dmg-arcs"></canvas>
+  <canvas id="crosshair"></canvas>
+
   <div id="hud" class="hidden">
-    <canvas id="crosshair"></canvas>
-    <div id="minimap-box"><canvas id="minimap" width="230" height="230"></canvas></div>
-    <div id="region"></div>
-    <div id="speed" class="hidden"><div id="speed-bar"><i id="speed-fill"></i><i id="speed-thr"></i></div><span id="speed-txt"></span></div>
-    <div id="bottom">
-      <div id="hp"><b id="hp-num">150</b><span>체력</span></div>
-      <div id="ammo"><b id="ammo-num">25</b><span id="ammo-res">/ ∞</span><small id="weapon-name">VANDAL</small></div>
+    <!-- 1920×1080 기준 좌표. 화면 높이에 맞춰 통째로 확대/축소 -->
+    <div id="stage">
+      <div class="hud-el" data-el="minimap" id="minimap-wrap"><canvas id="minimap"></canvas></div>
+      <div class="hud-el" data-el="region" id="region"></div>
+
+      <div class="hud-el" data-el="topbar" id="topbar">
+        <div class="tb-score me"><img class="tb-agent" id="tb-me-agent" alt=""><b id="tb-me">0</b></div>
+        <div class="tb-timer"><b id="tb-time">9:00</b><small id="tb-goal">40</small></div>
+        <div class="tb-score lead"><b id="tb-lead">0</b><img class="tb-agent" id="tb-lead-agent" alt=""></div>
+      </div>
+
+      <div class="hud-el" data-el="killfeed" id="killfeed"></div>
+
+      <div class="hud-el" data-el="health" id="health">
+        <div class="armor"><svg viewBox="0 0 26 30" aria-hidden="true"><path d="M13 1.5 24.5 8v14L13 28.5 1.5 22V8Z"/></svg><b id="armor-num">50</b></div>
+        <b id="hp-num">100</b>
+        <div class="hp-bar"><i id="hp-fill"></i></div>
+      </div>
+
+      <div class="hud-el" data-el="abilities" id="abilities"></div>
+
+      <div class="hud-el" data-el="ammo" id="ammo">
+        <b id="ammo-num">25</b><span class="div"></span><span id="ammo-res">50</span>
+      </div>
+
+      <div class="hud-el" data-el="weapons" id="weapons">
+        <div class="slot" data-w="vandal"><img src="assets/icons/vandal.png" alt=""><kbd>1</kbd></div>
+        <div class="slot" data-w="knife"><svg viewBox="0 0 120 30" aria-hidden="true"><path d="M4 16 66 9l40 4c6 1 10 3 12 5-8 1-26 2-52 1H34l-6 5H14l-2-6Z"/></svg><kbd>3</kbd></div>
+      </div>
+
+      <div class="hud-el" data-el="banner" id="killbanner"></div>
+
+      <div id="practice">
+        <div id="speed" class="hidden"><div id="speed-bar"><i id="speed-fill"></i><i id="speed-thr"></i></div><span id="speed-txt"></span></div>
+      </div>
+
+      <div id="death" class="hidden"></div>
+      <div id="protect" class="hidden">무적 — 움직이거나 쏘면 풀려요</div>
+      <div id="scoreboard" class="hidden"></div>
+      <div id="matchend" class="hidden"></div>
+      <div id="toast"></div>
     </div>
-    <div id="banner"></div>
-    <div id="toast"></div>
-    <div id="hurt"></div>
-    <div id="dead" class="hidden">사망</div>
-    <div id="stats" class="hidden"></div>
     <div id="bigmap" class="hidden"><canvas id="bigmap-canvas"></canvas></div>
     <div id="fps"></div>
   </div>
 
-  <div id="menu"><div class="panel"></div></div>
+  <!-- HUD 위치 맞추기: 내 발로 스크린샷을 겹쳐 놓고 요소를 끌어서 맞춤 -->
+  <div id="calib" class="hidden">
+    <img id="calib-shot" alt="">
+    <div id="calib-bar"></div>
+  </div>
+
+  <div id="menu"></div>
 
   <noscript>자바스크립트를 켜야 합니다.</noscript>
   <script type="module" src="js/client/main.js"></script>
